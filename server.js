@@ -1158,36 +1158,65 @@ app.put('/api/empresas/:id', auth, async (req,res)=>{
 });
 
 // ── Login con selección de empresa ───────────────────────
+// ── DEBUG LOGIN — ver exactamente por qué falla ────────────
+// GET /api/debug-login?user=EMAIL&key=vef2025
+app.get('/api/debug-login', async (req,res)=>{
+  if(req.query.key!=='vef2025') return res.status(403).json({error:'Clave incorrecta'});
+  const username = req.query.user||'admin';
+  try{
+    // Buscar usuario
+    let r1 = await pool.query('SELECT id,username,email,rol,activo,empresa_id,schema_name FROM public.usuarios WHERE username=$1',[username]);
+    if(!r1.rows.length) r1 = await pool.query('SELECT id,username,email,rol,activo,empresa_id,schema_name FROM public.usuarios WHERE email=$1',[username]);
+    if(!r1.rows.length) return res.json({found:false, msg:'Usuario no encontrado'});
+    
+    const u = r1.rows[0];
+    // Ver hashes
+    const r2 = await pool.query('SELECT length(password_hash::text) len_hash, left(password_hash::text,10) hash_preview, length(password::text) len_pass FROM public.usuarios WHERE id=$1',[u.id]).catch(()=>({rows:[{}]}));
+    const hashInfo = r2.rows[0]||{};
+    
+    res.json({
+      found: true,
+      usuario: u,
+      hash_info: hashInfo,
+      msg: hashInfo.len_hash>0 ? 'Tiene password_hash' : 'NO tiene password_hash - solo password columna'
+    });
+  }catch(e){ res.status(500).json({error:e.message}); }
+});
+
 app.post('/api/auth/login', async (req,res) => {
   const {username,password,empresa_id}=req.body;
+  if(!username||!password) return res.status(400).json({error:'Usuario y contraseña requeridos'});
   try {
-    // Buscar por username O por email (ambos válidos)
+    // Buscar por username O por email
     let result = await pool.query('SELECT * FROM public.usuarios WHERE username=$1',[username]);
     if(!result.rows.length){
-      // Intentar buscar por email si la columna existe
-      try { result = await pool.query('SELECT * FROM public.usuarios WHERE email=$1',[username]); } catch(e){}
+      result = await pool.query('SELECT * FROM public.usuarios WHERE email=$1',[username]).catch(()=>({rows:[]}));
     }
-    const user=result.rows[0];
-    if (!user) return res.status(401).json({error:'Usuario no encontrado. Usa: admin / admin123'});
-    if (user.activo===false) return res.status(401).json({error:'Usuario desactivado'});
-    const hash=user.password_hash||user.password||user.contrasena||'';
-    if (!hash) return res.status(401).json({error:'Sin contraseña configurada. Reinicia el servidor.'});
-    if (!await bcrypt.compare(password,hash)) return res.status(401).json({error:'Contraseña incorrecta'});
-    if (has('usuarios','ultimo_acceso'))
-      try { await pool.query('UPDATE usuarios SET ultimo_acceso=NOW() WHERE id=$1',[user.id]); } catch{}
+    const user = result.rows[0];
+    if(!user) return res.status(401).json({error:'Usuario no encontrado'});
+    if(user.activo===false) return res.status(401).json({error:'Usuario desactivado'});
 
-    // Obtener empresa del usuario (1:1) — usar default si no tiene asignada
-    let empId = user.empresa_id || global._defaultEmpresaId;
-    let schema = user.schema_name || global._defaultSchema || 'public';
-    // Si admin sin empresa, asignar la default automáticamente
+    // Verificar contraseña — revisar TODAS las columnas posibles
+    const hash = user.password_hash || user.password || user.contrasena || '';
+    if(!hash) return res.status(401).json({error:'Sin contraseña configurada. Ejecuta /api/fix?key=vef2025'});
+    const passOk = await bcrypt.compare(password, hash);
+    if(!passOk) return res.status(401).json({error:'Contraseña incorrecta'});
+
+    // Actualizar último acceso
+    try { await pool.query('UPDATE public.usuarios SET ultimo_acceso=NOW() WHERE id=$1',[user.id]); } catch{}
+
+    // Empresa del usuario
+    let empId  = user.empresa_id  || global._defaultEmpresaId;
+    let schema = user.schema_name || global._defaultSchema || 'emp_vef';
     if(!user.empresa_id && user.rol==='admin'){
-      empId = global._defaultEmpresaId;
-      schema = global._defaultSchema || 'public';
-      await pool.query('UPDATE usuarios SET empresa_id=$1,schema_name=$2 WHERE id=$3',[empId,schema,user.id]);
+      empId  = global._defaultEmpresaId;
+      schema = global._defaultSchema || 'emp_vef';
+      try { await pool.query('UPDATE public.usuarios SET empresa_id=$1,schema_name=$2 WHERE id=$3',[empId,schema,user.id]); } catch{}
     }
-    // Obtener nombre de empresa
-    const empRow = await pool.query('SELECT nombre,slug FROM empresas WHERE id=$1 LIMIT 1',[empId]);
-    const empNombre = empRow[0]?.nombre || 'VEF Automatización';
+
+    // Nombre de empresa
+    const empRow = await pool.query('SELECT nombre,slug FROM public.empresas WHERE id=$1 LIMIT 1',[empId]);
+    const empNombre = empRow.rows[0]?.nombre || 'VEF Automatización';
 
     // Verificar suscripción
     if(!empId){
@@ -1249,19 +1278,26 @@ app.get('/api/auth/verify', auth, async (req,res)=>{
 app.post('/api/auth/change-password', auth, async (req,res)=>{
   try {
     const {password_actual,password_nuevo}=req.body;
-    const [u]=await QR(req,'SELECT * FROM usuarios WHERE id=$1',[req.user.id]);
+    const rows=await pool.query('SELECT * FROM public.usuarios WHERE id=$1',[req.user.id]);
+    const u=rows.rows[0];
     if (!u) return res.status(404).json({error:'Usuario no encontrado'});
-    const h=u.password_hash||u.password||'';
+    const h=u.password_hash||u.password||u.contrasena||'';
     if (!await bcrypt.compare(password_actual,h)) return res.status(401).json({error:'Contraseña actual incorrecta'});
     const newHash=await bcrypt.hash(password_nuevo,12);
     const csets=[];const cvals=[];let ci=1;
-    if(has('usuarios','password_hash')){csets.push(`password_hash=$${ci++}`);cvals.push(newHash);}
-    if(has('usuarios','password')){csets.push(`password=$${ci++}`);cvals.push(newHash);}
-    if(has('usuarios','contrasena')){csets.push(`contrasena=$${ci++}`);cvals.push(newHash);}
+    const cpCols=await pool.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='usuarios' AND column_name IN ('password_hash','password','contrasena')`);
+    const cpColList=cpCols.rows.map(r=>r.column_name);
+    if(cpColList.includes('password_hash')){csets.push(`password_hash=$${ci++}`);cvals.push(newHash);}
+    if(cpColList.includes('password'))     {csets.push(`password=$${ci++}`);     cvals.push(newHash);}
+    if(cpColList.includes('contrasena'))   {csets.push(`contrasena=$${ci++}`);   cvals.push(newHash);}
+    if(!csets.length) return res.status(500).json({error:'No se encontró columna de contraseña'});
     cvals.push(req.user.id);
-    await pool.query(`UPDATE usuarios SET ${csets.join(',')} WHERE id=$${ci}`,cvals);
+    await pool.query(`UPDATE public.usuarios SET ${csets.join(',')} WHERE id=$${ci}`,cvals);
     res.json({ok:true});
-  } catch(e){ res.status(500).json({error:e.message}); }
+  } catch(e){ 
+    console.error('change-password:', e.message);
+    res.status(500).json({error:e.message}); 
+  }
 });
 
 // ================================================================
@@ -1446,7 +1482,19 @@ app.post('/api/admin/usuarios/:id/reset', auth, async (req,res)=>{
     const {nueva_password='password123'} = req.body;
     if(!nueva_password||nueva_password.length<6) return res.status(400).json({error:'Mínimo 6 caracteres'});
     const hash = await bcrypt.hash(nueva_password,10);
-    await pool.query('UPDATE public.usuarios SET password_hash=$1 WHERE id=$2',[hash,req.params.id]);
+    // Verificar qué columnas existen en la tabla usuarios
+    const colRes = await pool.query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_schema='public' AND table_name='usuarios' 
+       AND column_name IN ('password_hash','password','contrasena')`);
+    const cols = colRes.rows.map(r=>r.column_name);
+    const sets = []; const vals = []; let i=1;
+    if(cols.includes('password_hash')){ sets.push(`password_hash=$${i++}`); vals.push(hash); }
+    if(cols.includes('password'))     { sets.push(`password=$${i++}`);      vals.push(hash); }
+    if(cols.includes('contrasena'))   { sets.push(`contrasena=$${i++}`);    vals.push(hash); }
+    if(!sets.length) return res.status(500).json({error:'No se encontró columna de contraseña'});
+    vals.push(req.params.id);
+    await pool.query(`UPDATE public.usuarios SET ${sets.join(',')} WHERE id=$${i}`, vals);
     const u = await pool.query('SELECT id,username,nombre FROM public.usuarios WHERE id=$1',[req.params.id]);
     if(!u.rows.length) return res.status(404).json({error:'Usuario no encontrado'});
     res.json({ok:true, usuario:u.rows[0], nueva_password});
@@ -2041,9 +2089,9 @@ app.put('/api/cotizaciones/:id', auth, async (req,res)=>{
 
 app.delete('/api/cotizaciones/:id', auth, adminOnly, async (req,res)=>{
   try {
-    await pool.query('DELETE FROM items_cotizacion WHERE cotizacion_id=$1',[req.params.id]);
-    await pool.query('DELETE FROM seguimientos WHERE cotizacion_id=$1',[req.params.id]);
-    await pool.query('DELETE FROM cotizaciones WHERE id=$1',[req.params.id]);
+    await QR(req,'DELETE FROM items_cotizacion WHERE cotizacion_id=$1',[req.params.id]);
+    await QR(req,'DELETE FROM seguimientos WHERE cotizacion_id=$1',[req.params.id]);
+    await QR(req,'DELETE FROM cotizaciones WHERE id=$1',[req.params.id]);
     res.json({ok:true});
   }catch(e){res.status(500).json({error:e.message});}
 });
@@ -2217,9 +2265,9 @@ app.put('/api/ordenes-proveedor/:id', auth, async (req,res)=>{
 
 app.delete('/api/ordenes-proveedor/:id', auth, adminOnly, async (req,res)=>{
   try {
-    await pool.query('DELETE FROM items_orden_proveedor WHERE orden_id=$1',[req.params.id]);
-    await pool.query('DELETE FROM seguimientos_oc WHERE orden_id=$1',[req.params.id]);
-    await pool.query('DELETE FROM ordenes_proveedor WHERE id=$1',[req.params.id]);
+    await QR(req,'DELETE FROM items_orden_proveedor WHERE orden_id=$1',[req.params.id]);
+    await QR(req,'DELETE FROM seguimientos_oc WHERE orden_id=$1',[req.params.id]);
+    await QR(req,'DELETE FROM ordenes_proveedor WHERE id=$1',[req.params.id]);
     res.json({ok:true});
   }catch(e){res.status(500).json({error:e.message});}
 });
@@ -2427,8 +2475,8 @@ app.get('/api/facturas/:id/pagos', auth, async (req,res)=>{
 
 app.delete('/api/facturas/:id', auth, adminOnly, async (req,res)=>{
   try {
-    await pool.query('DELETE FROM pagos WHERE factura_id=$1',[req.params.id]);
-    await pool.query('DELETE FROM facturas WHERE id=$1',[req.params.id]);
+    await QR(req,'DELETE FROM pagos WHERE factura_id=$1',[req.params.id]);
+    await QR(req,'DELETE FROM facturas WHERE id=$1',[req.params.id]);
     res.json({ok:true});
   }catch(e){res.status(500).json({error:e.message});}
 });
@@ -2691,16 +2739,24 @@ app.post('/api/usuarios/:id/reset-password', auth, adminOnly, async (req,res)=>{
     const {password}=req.body;
     if(!password) return res.status(400).json({error:'Nueva contraseña requerida'});
     const hash=await bcrypt.hash(password,12);
-    // Actualizar todas las columnas de contraseña que existan
+    // Verificar columnas reales en tiempo real
+    const colRes = await pool.query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_schema='public' AND table_name='usuarios' 
+       AND column_name IN ('password_hash','password','contrasena')`);
+    const cols = colRes.rows.map(r=>r.column_name);
     const sets=[];const pvals=[];let pi=1;
-    if(has('usuarios','password_hash')){sets.push(`password_hash=$${pi++}`);pvals.push(hash);}
-    if(has('usuarios','password')){sets.push(`password=$${pi++}`);pvals.push(hash);}
-    if(has('usuarios','contrasena')){sets.push(`contrasena=$${pi++}`);pvals.push(hash);}
+    if(cols.includes('password_hash')){ sets.push(`password_hash=$${pi++}`); pvals.push(hash); }
+    if(cols.includes('password'))     { sets.push(`password=$${pi++}`);      pvals.push(hash); }
+    if(cols.includes('contrasena'))   { sets.push(`contrasena=$${pi++}`);    pvals.push(hash); }
     if(!sets.length) return res.status(500).json({error:'No se encontró columna de contraseña'});
     pvals.push(req.params.id);
-    await pool.query(`UPDATE usuarios SET ${sets.join(',')} WHERE id=$${pi}`,pvals);
+    await pool.query(`UPDATE public.usuarios SET ${sets.join(',')} WHERE id=$${pi}`,pvals);
     res.json({ok:true});
-  }catch(e){res.status(500).json({error:e.message});}
+  }catch(e){ 
+    console.error('reset-password:', e.message);
+    res.status(500).json({error:e.message}); 
+  }
 });
 
 // ================================================================
@@ -2769,22 +2825,25 @@ app.post('/api/egresos', auth, async (req,res)=>{
     const {fecha,proveedor_id,proveedor_nombre,categoria,descripcion,
            subtotal,iva,total,metodo,referencia,numero_factura,notas} = req.body;
     if(!fecha) return res.status(400).json({error:'Fecha requerida'});
-    const r = await pool.query(`
+    const rows = await QR(req,`
       INSERT INTO egresos (fecha,proveedor_id,proveedor_nombre,categoria,descripcion,
         subtotal,iva,total,metodo,referencia,numero_factura,notas,created_by)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [fecha, proveedor_id||null, proveedor_nombre||null, categoria||null, descripcion||null,
        parseFloat(subtotal)||0, parseFloat(iva)||0, parseFloat(total)||parseFloat(subtotal)||0,
        metodo||'Transferencia', referencia||null, numero_factura||null, notas||null, req.user.id]);
-    res.status(201).json(r[0]||{});
-  }catch(e){ res.status(500).json({error:e.message}); }
+    res.status(201).json(rows[0]||{});
+  }catch(e){ 
+    console.error('egreso POST:', e.message);
+    res.status(500).json({error:e.message}); 
+  }
 });
 
 app.put('/api/egresos/:id', auth, async (req,res)=>{
   try {
     const {fecha,proveedor_id,proveedor_nombre,categoria,descripcion,
            subtotal,iva,total,metodo,referencia,numero_factura,notas} = req.body;
-    const r = await pool.query(`
+    const rows = await QR(req,`
       UPDATE egresos SET fecha=$1,proveedor_id=$2,proveedor_nombre=$3,categoria=$4,
         descripcion=$5,subtotal=$6,iva=$7,total=$8,metodo=$9,referencia=$10,
         numero_factura=$11,notas=$12 WHERE id=$13 RETURNING *`,
@@ -2792,12 +2851,15 @@ app.put('/api/egresos/:id', auth, async (req,res)=>{
        parseFloat(subtotal)||0, parseFloat(iva)||0, parseFloat(total)||0,
        metodo||'Transferencia', referencia||null, numero_factura||null, notas||null,
        req.params.id]);
-    res.json(r[0]);
-  }catch(e){ res.status(500).json({error:e.message}); }
+    res.json(rows[0]||{});
+  }catch(e){ 
+    console.error('egreso PUT:', e.message);
+    res.status(500).json({error:e.message}); 
+  }
 });
 
 app.delete('/api/egresos/:id', auth, adminOnly, async (req,res)=>{
-  try { await pool.query('DELETE FROM egresos WHERE id=$1',[req.params.id]); res.json({ok:true}); }
+  try { await QR(req,'DELETE FROM egresos WHERE id=$1',[req.params.id]); res.json({ok:true}); }
   catch(e){ res.status(500).json({error:e.message}); }
 });
 
@@ -3220,7 +3282,7 @@ app.put('/api/tareas/:id', auth, async (req,res)=>{
 });
 
 app.delete('/api/tareas/:id', auth, async (req,res)=>{
-  try { await pool.query('DELETE FROM tareas WHERE id=$1',[req.params.id]); res.json({ok:true}); }
+  try { await QR(req,'DELETE FROM tareas WHERE id=$1',[req.params.id]); res.json({ok:true}); }
   catch(e){ res.status(500).json({error:e.message}); }
 });
 
@@ -3376,7 +3438,7 @@ app.delete('/api/pdfs/:id', auth, adminOnly, async (req,res)=>{
     if(rows.length && fs.existsSync(rows[0].ruta_archivo)) {
       try { fs.unlinkSync(rows[0].ruta_archivo); } catch{}
     }
-    await pool.query('DELETE FROM pdfs_guardados WHERE id=$1',[req.params.id]);
+    await QR(req,'DELETE FROM pdfs_guardados WHERE id=$1',[req.params.id]);
     res.json({ok:true});
   } catch(e){ res.status(500).json({error:e.message}); }
 });
