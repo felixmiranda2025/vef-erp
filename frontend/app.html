@@ -245,6 +245,7 @@ tbody td{padding:11px 14px;vertical-align:middle;}
     <div class="nav-section">Productividad</div>
     <div class="nav-item" data-page="tareas" onclick="nav(&quot;tareas&quot;)"><span class="icon">✅</span> Tareas y Proyectos</div>
     <div class="nav-item" data-page="sat" onclick="nav(&quot;sat&quot;)"><span class="icon">📊</span> Reportes SAT</div>
+    <div class="nav-item" data-page="reportes-servicio" onclick="nav('reportes-servicio')"><span class="icon">📋</span> Reportes Servicio</div>
     <div class="nav-item" data-page="pdfs" onclick="nav(&quot;pdfs&quot;)"><span class="icon">📁</span> PDFs Guardados</div>
     <div class="nav-item" data-page="usuarios" id="navUsuarios" onclick="nav('usuarios')" style="display:none"><span class="icon">👥</span> Usuarios</div>
     <div class="nav-item" data-page="config" id="navConfig" onclick="nav(&quot;config&quot;)" style="display:none"><span class="icon">⚙️</span> Configuración</div>
@@ -504,7 +505,7 @@ function nav(page){
   }
   document.querySelectorAll('.nav-item').forEach(e=>e.classList.toggle('active',e.dataset.page===page));
   closeSidebar(); spin();
-  const PAGES={dashboard,clientes,proveedores,proyectos,cotizaciones,ordenes,'oc-prov':ocProv,inventario,egresos,tareas,sat,pdfs,usuarios,config:configuracion};
+  const PAGES={dashboard,clientes,proveedores,proyectos,cotizaciones,ordenes,'oc-prov':ocProv,inventario,egresos,tareas,sat,pdfs,usuarios,'reportes-servicio':reportesServicio,config:configuracion};
   Promise.resolve().then(()=>(PAGES[page]||dashboard)()).catch(function(e){
     setContent('<div class="alert alert-err" style="padding:20px">&#10060; Error: '+esc(e.message)+'<br><br><button class="btn btn-secondary" onclick="dashboard()">&#8592; Volver</button></div>');
     console.error('nav error:',e);
@@ -4986,6 +4987,179 @@ async function admDoNuevoUsuario(){
   }catch(e){toast(e.message,'err');}
 }
 
+
+/* ══════════════════════════════════════════════════════
+   REPORTES DE SERVICIO
+══════════════════════════════════════════════════════ */
+let _rsSel=null, _rsData=null;
+
+async function reportesServicio(){
+  setPage('Reportes de Servicio');
+  const [data, clts, proys] = await Promise.all([
+    api('/api/reportes-servicio').catch(()=>[]),
+    api('/api/clientes').catch(()=>[]),
+    api('/api/proyectos').catch(()=>[])
+  ]);
+  window._rsClts = clts||[];
+  window._rsProys = proys||[];
+  _rsSel=null; _rsData=null;
+
+  const statusColor={borrador:'#64748b',en_proceso:'#d97706',finalizado:'#059669',cancelado:'#dc2626'};
+
+  window._rsRows = data||[];
+  setContent(
+    '<div class="card">'+
+    '<div class="card-header">'+
+      '<div class="card-title">📋 Reportes de Servicio</div>'+
+      '<button class="btn btn-primary" onclick="rsForm()">➕ Nuevo Reporte</button>'+
+    '</div>'+
+    '<div class="card-body">'+
+      '<div class="btn-toolbar" style="margin-bottom:10px">'+
+        '<button class="btn btn-secondary" onclick="rsEditar()">✏️ Editar</button>'+
+        '<button class="btn btn-dark" onclick="rsPDF()">📄 Generar PDF</button>'+
+        '<button class="btn btn-danger btn-sm" onclick="rsEliminar()">🗑 Eliminar</button>'+
+      '</div>'+
+      '<div class="search-bar" style="margin-bottom:10px">'+
+        '<input class="search-input" placeholder="Buscar reporte, cliente, técnico..." oninput="filterTable(this,&quot;tblRS&quot;)">'+
+      '</div>'+
+      '<div class="table-wrap"><table id="tblRS">'+
+        '<thead><tr>'+
+          '<th>N° Reporte</th><th>Título</th><th>Cliente</th>'+
+          '<th>Técnico</th><th>Fecha</th><th>Estatus</th>'+
+        '</tr></thead>'+
+        '<tbody>'+(data||[]).map(function(r,idx){
+          var sc=statusColor[r.estatus]||'#64748b';
+          return '<tr class="row-sel" onclick="selRS('+idx+')" data-idx="'+idx+'">'  +
+            '<td><strong style="font-family:monospace">'+esc(r.numero_reporte||'—')+'</strong></td>'+
+            '<td>'+esc(r.titulo||'—')+'</td>'+
+            '<td style="font-size:.83rem">'+esc(r.cliente_nombre||'—')+'</td>'+
+            '<td style="font-size:.83rem">'+esc(r.tecnico||'—')+'</td>'+
+            '<td style="font-size:.82rem;color:#64748b">'+fmtDate(r.fecha_reporte)+'</td>'+
+            '<td><span style="background:'+sc+'20;color:'+sc+';border:1px solid '+sc+'40;padding:2px 9px;border-radius:20px;font-size:.74rem;font-weight:700">'+esc(r.estatus||'borrador')+'</span></td>'+
+          '</tr>';
+        }).join('')||'<tr><td colspan="6" style="color:#aaa;text-align:center;padding:30px">Sin reportes. Crea el primero.</td></tr>'+
+        '</tbody></table></div>'+
+    '</div></div>'
+  );
+}
+
+function selRS(idx){
+  var r=(window._rsRows||[])[idx];
+  if(!r) return;
+  _rsSel=r.id;
+  _rsData=r;
+  document.querySelectorAll('#tblRS tr.row-sel').forEach(function(tr){tr.classList.remove('selected');});
+  var row=document.querySelector('#tblRS tr[data-idx="'+idx+'"]');
+  if(row) row.classList.add('selected');
+}
+
+function rsEditar(){ if(!_rsData){toast('Selecciona un reporte primero','err');return;} rsForm(_rsData); }
+async function rsEliminar(){
+  if(!_rsSel){toast('Selecciona un reporte primero','err');return;}
+  if(!confirm('¿Eliminar reporte "'+(_rsData?.numero_reporte||'')+'"?'))return;
+  try{ await api('/api/reportes-servicio/'+_rsSel,'DELETE'); toast('Reporte eliminado'); reportesServicio(); }
+  catch(e){ toast(e.message,'err'); }
+}
+async function rsPDF(){
+  if(!_rsSel){toast('Selecciona un reporte primero','err');return;}
+  toast('⏳ Generando PDF...');
+  abrirYGuardarPDF('/api/reportes-servicio/'+_rsSel+'/pdf','RS-'+(_rsData?.numero_reporte||_rsSel));
+}
+
+function rsForm(ed){
+  var cliOpts=(window._rsClts||[]).map(function(c){
+    return '<option value="'+c.id+'"'+(ed&&ed.cliente_id==c.id?' selected':'')+'>'+esc(c.nombre)+'</option>';
+  }).join('');
+  var proyOpts=(window._rsProys||[]).map(function(p){
+    return '<option value="'+p.id+'"'+(ed&&ed.proyecto_id==p.id?' selected':'')+'>'+esc(p.nombre)+'</option>';
+  }).join('');
+
+  var secciones=[
+    {id:'rs_intro',  label:'1. Introducción',              val:ed?.introduccion||''},
+    {id:'rs_obj',    label:'2. Objetivo',                   val:ed?.objetivo||''},
+    {id:'rs_alc',    label:'3. Alcance',                    val:ed?.alcance||''},
+    {id:'rs_desc',   label:'4. Descripción del Sistema',    val:ed?.descripcion_sistema||''},
+    {id:'rs_arq',    label:'5. Arquitectura del Sistema',   val:ed?.arquitectura||''},
+    {id:'rs_dev',    label:'6. Desarrollo Técnico',         val:ed?.desarrollo_tecnico||''},
+    {id:'rs_prueb',  label:'7. Resultados de Pruebas',      val:ed?.resultados_pruebas||''},
+    {id:'rs_prob',   label:'8. Problemas Detectados',       val:ed?.problemas_detectados||''},
+    {id:'rs_sol',    label:'9. Soluciones Implementadas',   val:ed?.soluciones_implementadas||''},
+    {id:'rs_conc',   label:'10. Conclusiones',              val:ed?.conclusiones||''},
+    {id:'rs_rec',    label:'11. Recomendaciones',           val:ed?.recomendaciones||''},
+    {id:'rs_anex',   label:'12. Anexos',                    val:ed?.anexos||''},
+  ];
+
+  openModalLg(ed?'✏️ Editar Reporte: '+esc(ed.numero_reporte):'📋 Nuevo Reporte de Servicio',
+    '<div style="max-height:65vh;overflow-y:auto;padding-right:8px">'+
+    '<div class="form-grid form-grid-2" style="gap:12px;margin-bottom:16px">'+
+      '<div class="field-group" style="grid-column:1/-1">'+
+        '<label class="field-required">Título del Reporte</label>'+
+        '<input id="rs_tit" value="'+esc(ed?.titulo||'')+'" placeholder="Ej: Reporte de Instalación Sistema SCADA">'+
+      '</div>'+
+      '<div class="field-group"><label>Cliente</label>'+
+        '<select id="rs_cli"><option value="">— Sin cliente —</option>'+cliOpts+'</select></div>'+
+      '<div class="field-group"><label>Proyecto</label>'+
+        '<select id="rs_proy"><option value="">— Sin proyecto —</option>'+proyOpts+'</select></div>'+
+      '<div class="field-group"><label>Fecha del Reporte</label>'+
+        '<input id="rs_fecha" type="date" value="'+(ed?.fecha_reporte||new Date().toISOString().slice(0,10))+'"></div>'+
+      '<div class="field-group"><label>Fecha del Servicio</label>'+
+        '<input id="rs_fserv" type="date" value="'+(ed?.fecha_servicio?ed.fecha_servicio.slice(0,10):'')+'"></div>'+
+      '<div class="field-group"><label>Técnico Responsable</label>'+
+        '<input id="rs_tec" value="'+esc(ed?.tecnico||'')+'" placeholder="Nombre del técnico"></div>'+
+      '<div class="field-group"><label>Estatus</label>'+
+        '<select id="rs_est">'+
+          ['borrador','en_proceso','finalizado','cancelado'].map(function(s){
+            return '<option value="'+s+'"'+(ed&&ed.estatus===s?' selected':'')+'>'+s+'</option>';
+          }).join('')+
+        '</select></div>'+
+    '</div>'+
+    '<div style="border-top:2px solid #e2e8f0;padding-top:14px">'+
+      '<div style="font-size:.8rem;font-weight:700;color:#0D2B55;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">'+
+        '📑 Contenido del Reporte</div>'+
+      secciones.map(function(s){
+        return '<div class="field-group" style="margin-bottom:12px">'+
+          '<label style="font-weight:700;color:#0D2B55">'+esc(s.label)+'</label>'+
+          '<textarea id="'+s.id+'" rows="4" style="font-size:.85rem;resize:vertical" '+
+            'placeholder="Escribe el contenido de esta sección...">'+esc(s.val)+'</textarea>'+
+        '</div>';
+      }).join('')+
+    '</div>'+
+    '</div>',
+    '<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>'+
+    '<button class="btn btn-primary" onclick="rsSave('+(ed?ed.id:'null')+')">💾 Guardar Reporte</button>'
+  );
+}
+
+async function rsSave(id){
+  var b={
+    titulo:         ge('rs_tit').value.trim(),
+    cliente_id:     parseInt(ge('rs_cli').value)||null,
+    proyecto_id:    parseInt(ge('rs_proy').value)||null,
+    fecha_reporte:  ge('rs_fecha').value||null,
+    fecha_servicio: ge('rs_fserv').value||null,
+    tecnico:        ge('rs_tec').value.trim(),
+    estatus:        ge('rs_est').value,
+    introduccion:           ge('rs_intro').value.trim(),
+    objetivo:               ge('rs_obj').value.trim(),
+    alcance:                ge('rs_alc').value.trim(),
+    descripcion_sistema:    ge('rs_desc').value.trim(),
+    arquitectura:           ge('rs_arq').value.trim(),
+    desarrollo_tecnico:     ge('rs_dev').value.trim(),
+    resultados_pruebas:     ge('rs_prueb').value.trim(),
+    problemas_detectados:   ge('rs_prob').value.trim(),
+    soluciones_implementadas:ge('rs_sol').value.trim(),
+    conclusiones:           ge('rs_conc').value.trim(),
+    recomendaciones:        ge('rs_rec').value.trim(),
+    anexos:                 ge('rs_anex').value.trim(),
+  };
+  if(!b.titulo){toast('Título requerido','err');return;}
+  try{
+    if(id&&id!=='null') await api('/api/reportes-servicio/'+id,'PUT',b);
+    else await api('/api/reportes-servicio','POST',b);
+    toast('✅ Reporte guardado');
+    closeModal(); reportesServicio();
+  }catch(e){toast(e.message,'err');}
+}
 
 /* ══════════════ INIT ══════════════ */
 // Modal solo se cierra con botón ✕ o botones explícitos — no al hacer click fuera

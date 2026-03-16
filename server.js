@@ -663,6 +663,7 @@ app.get('/api/fix', async (req,res)=>{
         `CREATE TABLE IF NOT EXISTS tareas (id SERIAL PRIMARY KEY,titulo VARCHAR(300) NOT NULL,descripcion TEXT,proyecto_id INTEGER,asignado_a INTEGER,creado_por INTEGER,prioridad VARCHAR(20) DEFAULT 'normal',estatus VARCHAR(30) DEFAULT 'pendiente',fecha_inicio DATE,fecha_vencimiento DATE,fecha_completada TIMESTAMP,notas TEXT,created_at TIMESTAMP DEFAULT NOW(),updated_at TIMESTAMP DEFAULT NOW())`,
         `CREATE TABLE IF NOT EXISTS egresos (id SERIAL PRIMARY KEY,fecha DATE NOT NULL DEFAULT CURRENT_DATE,proveedor_id INTEGER,proveedor_nombre VARCHAR(200),categoria VARCHAR(100),descripcion TEXT,subtotal NUMERIC(15,2) DEFAULT 0,iva NUMERIC(15,2) DEFAULT 0,total NUMERIC(15,2) DEFAULT 0,metodo VARCHAR(50) DEFAULT 'Transferencia',referencia VARCHAR(100),numero_factura VARCHAR(100),factura_pdf BYTEA,factura_nombre TEXT,notas TEXT,created_by INTEGER,created_at TIMESTAMP DEFAULT NOW())`,
         `CREATE TABLE IF NOT EXISTS pdfs_guardados (id SERIAL PRIMARY KEY,tipo VARCHAR(30),referencia_id INTEGER,numero_doc VARCHAR(100),cliente_proveedor VARCHAR(200),ruta_archivo TEXT,nombre_archivo VARCHAR(200),tamanio_bytes INTEGER,pdf_data BYTEA,generado_por INTEGER,created_at TIMESTAMP DEFAULT NOW())`,
+        `CREATE TABLE IF NOT EXISTS reportes_servicio (id SERIAL PRIMARY KEY,numero_reporte VARCHAR(50),titulo VARCHAR(300) NOT NULL,cliente_id INTEGER,proyecto_id INTEGER,fecha_reporte DATE DEFAULT CURRENT_DATE,fecha_servicio DATE,tecnico VARCHAR(200),estatus VARCHAR(30) DEFAULT 'borrador',introduccion TEXT,objetivo TEXT,alcance TEXT,descripcion_sistema TEXT,arquitectura TEXT,desarrollo_tecnico TEXT,resultados_pruebas TEXT,problemas_detectados TEXT,soluciones_implementadas TEXT,conclusiones TEXT,recomendaciones TEXT,anexos TEXT,created_by INTEGER,created_at TIMESTAMP DEFAULT NOW(),updated_at TIMESTAMP DEFAULT NOW())`,
       ];
       for(const sql of tbls){try{await sc.query(sql);}catch(e){log.push('⚠ '+e.message.slice(0,60));}}
       const ec=(await sc.query(`SELECT id FROM empresa_config LIMIT 1`)).rows;
@@ -954,6 +955,7 @@ async function autoSetup() {
         "ALTER TABLE ordenes_proveedor ADD COLUMN IF NOT EXISTS cotizacion_pdf BYTEA",
         "ALTER TABLE ordenes_proveedor ADD COLUMN IF NOT EXISTS cotizacion_nombre TEXT",
         "ALTER TABLE tareas ADD COLUMN IF NOT EXISTS fecha_completada TIMESTAMP",
+        "CREATE TABLE IF NOT EXISTS reportes_servicio (id SERIAL PRIMARY KEY,numero_reporte VARCHAR(50),titulo VARCHAR(300) NOT NULL,cliente_id INTEGER,proyecto_id INTEGER,fecha_reporte DATE DEFAULT CURRENT_DATE,fecha_servicio DATE,tecnico VARCHAR(200),estatus VARCHAR(30) DEFAULT 'borrador',introduccion TEXT,objetivo TEXT,alcance TEXT,descripcion_sistema TEXT,arquitectura TEXT,desarrollo_tecnico TEXT,resultados_pruebas TEXT,problemas_detectados TEXT,soluciones_implementadas TEXT,conclusiones TEXT,recomendaciones TEXT,anexos TEXT,created_by INTEGER,created_at TIMESTAMP DEFAULT NOW(),updated_at TIMESTAMP DEFAULT NOW())",
         "ALTER TABLE tareas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
         "ALTER TABLE egresos ADD COLUMN IF NOT EXISTS proveedor_id INTEGER",
         "ALTER TABLE egresos ADD COLUMN IF NOT EXISTS factura_pdf BYTEA",
@@ -2760,11 +2762,255 @@ app.post('/api/usuarios/:id/reset-password', auth, adminOnly, async (req,res)=>{
 });
 
 // ================================================================
+// REPORTES DE SERVICIO
+// ================================================================
+app.get('/api/reportes-servicio', auth, async (req,res)=>{
+  try{
+    const rows = await QR(req,`
+      SELECT rs.*,
+        cl.nombre cliente_nombre,
+        p.nombre proyecto_nombre
+      FROM reportes_servicio rs
+      LEFT JOIN clientes cl ON cl.id=rs.cliente_id
+      LEFT JOIN proyectos p ON p.id=rs.proyecto_id
+      ORDER BY rs.created_at DESC`);
+    res.json(rows);
+  }catch(e){ res.status(500).json({error:e.message}); }
+});
+
+app.get('/api/reportes-servicio/:id', auth, async (req,res)=>{
+  try{
+    const rows = await QR(req,`
+      SELECT rs.*,
+        cl.nombre cliente_nombre, cl.rfc cliente_rfc,
+        cl.email cliente_email, cl.telefono cliente_tel,
+        p.nombre proyecto_nombre
+      FROM reportes_servicio rs
+      LEFT JOIN clientes cl ON cl.id=rs.cliente_id
+      LEFT JOIN proyectos p ON p.id=rs.proyecto_id
+      WHERE rs.id=$1`,[req.params.id]);
+    if(!rows.length) return res.status(404).json({error:'No encontrado'});
+    res.json(rows[0]);
+  }catch(e){ res.status(500).json({error:e.message}); }
+});
+
+app.post('/api/reportes-servicio', auth, async (req,res)=>{
+  try{
+    const {titulo,cliente_id,proyecto_id,fecha_reporte,fecha_servicio,tecnico,
+           introduccion,objetivo,alcance,descripcion_sistema,arquitectura,
+           desarrollo_tecnico,resultados_pruebas,problemas_detectados,
+           soluciones_implementadas,conclusiones,recomendaciones,anexos} = req.body;
+    if(!titulo) return res.status(400).json({error:'Título requerido'});
+    const yr = new Date().getFullYear();
+    const cnt = await QR(req,'SELECT COUNT(*) val FROM reportes_servicio');
+    const num = `RS-${yr}-${String(parseInt(cnt[0]?.val||0)+1).padStart(3,'0')}`;
+    const rows = await QR(req,`
+      INSERT INTO reportes_servicio (numero_reporte,titulo,cliente_id,proyecto_id,
+        fecha_reporte,fecha_servicio,tecnico,estatus,
+        introduccion,objetivo,alcance,descripcion_sistema,arquitectura,
+        desarrollo_tecnico,resultados_pruebas,problemas_detectados,
+        soluciones_implementadas,conclusiones,recomendaciones,anexos,created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,'borrador',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+      RETURNING *`,
+      [num,titulo,cliente_id||null,proyecto_id||null,
+       fecha_reporte||new Date().toISOString().slice(0,10),
+       fecha_servicio||null, tecnico||req.user.nombre||'VEF',
+       introduccion||null,objetivo||null,alcance||null,descripcion_sistema||null,
+       arquitectura||null,desarrollo_tecnico||null,resultados_pruebas||null,
+       problemas_detectados||null,soluciones_implementadas||null,
+       conclusiones||null,recomendaciones||null,anexos||null,req.user.id]);
+    res.status(201).json(rows[0]);
+  }catch(e){ console.error('RS POST:',e.message); res.status(500).json({error:e.message}); }
+});
+
+app.put('/api/reportes-servicio/:id', auth, async (req,res)=>{
+  try{
+    const b = req.body;
+    const sets=[]; const vals=[]; let i=1;
+    const add=(k,v)=>{ sets.push(`${k}=$${i++}`); vals.push(v); };
+    if(b.titulo!==undefined)                  add('titulo',b.titulo);
+    if(b.cliente_id!==undefined)              add('cliente_id',b.cliente_id||null);
+    if(b.proyecto_id!==undefined)             add('proyecto_id',b.proyecto_id||null);
+    if(b.fecha_reporte!==undefined)           add('fecha_reporte',b.fecha_reporte);
+    if(b.fecha_servicio!==undefined)          add('fecha_servicio',b.fecha_servicio||null);
+    if(b.tecnico!==undefined)                 add('tecnico',b.tecnico);
+    if(b.estatus!==undefined)                 add('estatus',b.estatus);
+    if(b.introduccion!==undefined)            add('introduccion',b.introduccion);
+    if(b.objetivo!==undefined)                add('objetivo',b.objetivo);
+    if(b.alcance!==undefined)                 add('alcance',b.alcance);
+    if(b.descripcion_sistema!==undefined)     add('descripcion_sistema',b.descripcion_sistema);
+    if(b.arquitectura!==undefined)            add('arquitectura',b.arquitectura);
+    if(b.desarrollo_tecnico!==undefined)      add('desarrollo_tecnico',b.desarrollo_tecnico);
+    if(b.resultados_pruebas!==undefined)      add('resultados_pruebas',b.resultados_pruebas);
+    if(b.problemas_detectados!==undefined)    add('problemas_detectados',b.problemas_detectados);
+    if(b.soluciones_implementadas!==undefined)add('soluciones_implementadas',b.soluciones_implementadas);
+    if(b.conclusiones!==undefined)            add('conclusiones',b.conclusiones);
+    if(b.recomendaciones!==undefined)         add('recomendaciones',b.recomendaciones);
+    if(b.anexos!==undefined)                  add('anexos',b.anexos);
+    sets.push(`updated_at=NOW()`);
+    vals.push(req.params.id);
+    await QR(req,`UPDATE reportes_servicio SET ${sets.join(',')} WHERE id=$${i}`,vals);
+    const rows = await QR(req,'SELECT * FROM reportes_servicio WHERE id=$1',[req.params.id]);
+    res.json(rows[0]||{});
+  }catch(e){ console.error('RS PUT:',e.message); res.status(500).json({error:e.message}); }
+});
+
+app.delete('/api/reportes-servicio/:id', auth, adminOnly, async (req,res)=>{
+  try{ await QR(req,'DELETE FROM reportes_servicio WHERE id=$1',[req.params.id]); res.json({ok:true}); }
+  catch(e){ res.status(500).json({error:e.message}); }
+});
+
+// ── PDF del Reporte de Servicio ───────────────────────────────────
+app.get('/api/reportes-servicio/:id/pdf', auth, async (req,res)=>{
+  try{
+    const rows = await QR(req,`
+      SELECT rs.*,
+        cl.nombre cliente_nombre,cl.rfc cliente_rfc,cl.email cliente_email,
+        cl.telefono cliente_tel,cl.direccion cliente_dir,
+        p.nombre proyecto_nombre
+      FROM reportes_servicio rs
+      LEFT JOIN clientes cl ON cl.id=rs.cliente_id
+      LEFT JOIN proyectos p ON p.id=rs.proyecto_id
+      WHERE rs.id=$1`,[req.params.id]);
+    if(!rows.length) return res.status(404).json({error:'No encontrado'});
+    const r = rows[0];
+    const emp = await getEmpConfig(req.user?.schema);
+    const buf = await buildPDFReporteServicio(r, emp);
+    savePDFToFile(buf,'reporte_servicio',r.id,r.numero_reporte,r.cliente_nombre,req.user?.id,req.user?.schema).catch(()=>{});
+    res.setHeader('Content-Type','application/pdf');
+    res.setHeader('Content-Disposition',`inline; filename="RS-${r.numero_reporte||r.id}.pdf"`);
+    res.send(buf);
+  }catch(e){ console.error('RS PDF:',e.message); res.status(500).json({error:e.message}); }
+});
+
+// ================================================================
 // LOGO
 // ================================================================
 app.get('/api/logo/status', auth, (req,res)=>{
   const lp=getLogoPath();
   res.json({found:!!lp, filename:lp?path.basename(lp):null});
+});
+
+// ================================================================
+// REPORTES DE SERVICIO
+// ================================================================
+app.get('/api/reportes-servicio', auth, async (req,res)=>{
+  try{
+    const rows = await QR(req,`
+      SELECT rs.*,
+        cl.nombre cliente_nombre,
+        p.nombre proyecto_nombre
+      FROM reportes_servicio rs
+      LEFT JOIN clientes cl ON cl.id=rs.cliente_id
+      LEFT JOIN proyectos p ON p.id=rs.proyecto_id
+      ORDER BY rs.created_at DESC`);
+    res.json(rows);
+  }catch(e){ res.status(500).json({error:e.message}); }
+});
+
+app.get('/api/reportes-servicio/:id', auth, async (req,res)=>{
+  try{
+    const rows = await QR(req,`
+      SELECT rs.*,
+        cl.nombre cliente_nombre, cl.rfc cliente_rfc,
+        cl.email cliente_email, cl.telefono cliente_tel,
+        p.nombre proyecto_nombre
+      FROM reportes_servicio rs
+      LEFT JOIN clientes cl ON cl.id=rs.cliente_id
+      LEFT JOIN proyectos p ON p.id=rs.proyecto_id
+      WHERE rs.id=$1`,[req.params.id]);
+    if(!rows.length) return res.status(404).json({error:'No encontrado'});
+    res.json(rows[0]);
+  }catch(e){ res.status(500).json({error:e.message}); }
+});
+
+app.post('/api/reportes-servicio', auth, async (req,res)=>{
+  try{
+    const {titulo,cliente_id,proyecto_id,fecha_reporte,fecha_servicio,tecnico,
+           introduccion,objetivo,alcance,descripcion_sistema,arquitectura,
+           desarrollo_tecnico,resultados_pruebas,problemas_detectados,
+           soluciones_implementadas,conclusiones,recomendaciones,anexos} = req.body;
+    if(!titulo) return res.status(400).json({error:'Título requerido'});
+    const yr = new Date().getFullYear();
+    const cnt = await QR(req,'SELECT COUNT(*) val FROM reportes_servicio');
+    const num = `RS-${yr}-${String(parseInt(cnt[0]?.val||0)+1).padStart(3,'0')}`;
+    const rows = await QR(req,`
+      INSERT INTO reportes_servicio (numero_reporte,titulo,cliente_id,proyecto_id,
+        fecha_reporte,fecha_servicio,tecnico,estatus,
+        introduccion,objetivo,alcance,descripcion_sistema,arquitectura,
+        desarrollo_tecnico,resultados_pruebas,problemas_detectados,
+        soluciones_implementadas,conclusiones,recomendaciones,anexos,created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,'borrador',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+      RETURNING *`,
+      [num,titulo,cliente_id||null,proyecto_id||null,
+       fecha_reporte||new Date().toISOString().slice(0,10),
+       fecha_servicio||null, tecnico||req.user.nombre||'VEF',
+       introduccion||null,objetivo||null,alcance||null,descripcion_sistema||null,
+       arquitectura||null,desarrollo_tecnico||null,resultados_pruebas||null,
+       problemas_detectados||null,soluciones_implementadas||null,
+       conclusiones||null,recomendaciones||null,anexos||null,req.user.id]);
+    res.status(201).json(rows[0]);
+  }catch(e){ console.error('RS POST:',e.message); res.status(500).json({error:e.message}); }
+});
+
+app.put('/api/reportes-servicio/:id', auth, async (req,res)=>{
+  try{
+    const b = req.body;
+    const sets=[]; const vals=[]; let i=1;
+    const add=(k,v)=>{ sets.push(`${k}=$${i++}`); vals.push(v); };
+    if(b.titulo!==undefined)                  add('titulo',b.titulo);
+    if(b.cliente_id!==undefined)              add('cliente_id',b.cliente_id||null);
+    if(b.proyecto_id!==undefined)             add('proyecto_id',b.proyecto_id||null);
+    if(b.fecha_reporte!==undefined)           add('fecha_reporte',b.fecha_reporte);
+    if(b.fecha_servicio!==undefined)          add('fecha_servicio',b.fecha_servicio||null);
+    if(b.tecnico!==undefined)                 add('tecnico',b.tecnico);
+    if(b.estatus!==undefined)                 add('estatus',b.estatus);
+    if(b.introduccion!==undefined)            add('introduccion',b.introduccion);
+    if(b.objetivo!==undefined)                add('objetivo',b.objetivo);
+    if(b.alcance!==undefined)                 add('alcance',b.alcance);
+    if(b.descripcion_sistema!==undefined)     add('descripcion_sistema',b.descripcion_sistema);
+    if(b.arquitectura!==undefined)            add('arquitectura',b.arquitectura);
+    if(b.desarrollo_tecnico!==undefined)      add('desarrollo_tecnico',b.desarrollo_tecnico);
+    if(b.resultados_pruebas!==undefined)      add('resultados_pruebas',b.resultados_pruebas);
+    if(b.problemas_detectados!==undefined)    add('problemas_detectados',b.problemas_detectados);
+    if(b.soluciones_implementadas!==undefined)add('soluciones_implementadas',b.soluciones_implementadas);
+    if(b.conclusiones!==undefined)            add('conclusiones',b.conclusiones);
+    if(b.recomendaciones!==undefined)         add('recomendaciones',b.recomendaciones);
+    if(b.anexos!==undefined)                  add('anexos',b.anexos);
+    sets.push(`updated_at=NOW()`);
+    vals.push(req.params.id);
+    await QR(req,`UPDATE reportes_servicio SET ${sets.join(',')} WHERE id=$${i}`,vals);
+    const rows = await QR(req,'SELECT * FROM reportes_servicio WHERE id=$1',[req.params.id]);
+    res.json(rows[0]||{});
+  }catch(e){ console.error('RS PUT:',e.message); res.status(500).json({error:e.message}); }
+});
+
+app.delete('/api/reportes-servicio/:id', auth, adminOnly, async (req,res)=>{
+  try{ await QR(req,'DELETE FROM reportes_servicio WHERE id=$1',[req.params.id]); res.json({ok:true}); }
+  catch(e){ res.status(500).json({error:e.message}); }
+});
+
+// ── PDF del Reporte de Servicio ───────────────────────────────────
+app.get('/api/reportes-servicio/:id/pdf', auth, async (req,res)=>{
+  try{
+    const rows = await QR(req,`
+      SELECT rs.*,
+        cl.nombre cliente_nombre,cl.rfc cliente_rfc,cl.email cliente_email,
+        cl.telefono cliente_tel,cl.direccion cliente_dir,
+        p.nombre proyecto_nombre
+      FROM reportes_servicio rs
+      LEFT JOIN clientes cl ON cl.id=rs.cliente_id
+      LEFT JOIN proyectos p ON p.id=rs.proyecto_id
+      WHERE rs.id=$1`,[req.params.id]);
+    if(!rows.length) return res.status(404).json({error:'No encontrado'});
+    const r = rows[0];
+    const emp = await getEmpConfig(req.user?.schema);
+    const buf = await buildPDFReporteServicio(r, emp);
+    savePDFToFile(buf,'reporte_servicio',r.id,r.numero_reporte,r.cliente_nombre,req.user?.id,req.user?.schema).catch(()=>{});
+    res.setHeader('Content-Type','application/pdf');
+    res.setHeader('Content-Disposition',`inline; filename="RS-${r.numero_reporte||r.id}.pdf"`);
+    res.send(buf);
+  }catch(e){ console.error('RS PDF:',e.message); res.status(500).json({error:e.message}); }
 });
 
 // ================================================================
@@ -3375,6 +3621,140 @@ app.get('/api/reportes/sat/resumen', auth, async (req,res)=>{
 // ================================================================
 // PDFS GUARDADOS — listar, descargar, guardar automático
 // ================================================================
+// ── PDF Reporte de Servicio ──────────────────────────────────────
+async function buildPDFReporteServicio(r, emp={}) {
+  return new Promise((resolve,reject)=>{
+    const doc = new PDFKit({margin:50, size:'A4',
+      info:{Title:'Reporte de Servicio '+r.numero_reporte, Author:emp.nombre||VEF_NOMBRE}});
+    const ch=[]; doc.on('data',c=>ch.push(c)); doc.on('end',()=>resolve(Buffer.concat(ch))); doc.on('error',reject);
+    const M=50, W=495, AZUL='#0D2B55', AZUL_MED='#1A4A8A', GRIS='#f8fafc', TEXTO='#1e293b';
+    const _lp = getLogoPath();
+    let secNum = 0;
+
+    // ── PORTADA ──────────────────────────────────────────────
+    // Header azul con logo y nombre empresa
+    doc.rect(M,30,W,90).fill(AZUL);
+    if(_lp){
+      doc.rect(M,30,120,90).fill('#fff');
+      try{ doc.image(_lp, M+6,34,{fit:[108,82],align:'center',valign:'center'}); }catch(e){}
+    }
+    const tx = _lp?M+130:M+14;
+    const tw = _lp?W-140:W-28;
+    const empNom = emp.nombre||VEF_NOMBRE;
+    doc.fillColor('#fff').fontSize(13).font('Helvetica-Bold').text(empNom, tx, 44, {width:tw});
+    if(emp.rfc) doc.fontSize(8).font('Helvetica').fillColor('#A8C5F0').text('RFC: '+emp.rfc, tx, 60, {width:tw});
+    if(emp.telefono||emp.email){
+      const contact=[emp.telefono,emp.email].filter(Boolean).join('  |  ');
+      doc.fontSize(8).font('Helvetica').fillColor('#A8C5F0').text(contact, tx, 71, {width:tw});
+    }
+
+    // Título del documento
+    doc.moveDown(2.5);
+    doc.fillColor(AZUL).fontSize(22).font('Helvetica-Bold')
+       .text('REPORTE DE SERVICIO', M, doc.y, {width:W, align:'center'});
+    doc.moveDown(0.4);
+    doc.fillColor(AZUL_MED).fontSize(14).font('Helvetica')
+       .text(r.titulo||'Sin título', M, doc.y, {width:W, align:'center'});
+    doc.moveDown(1.5);
+
+    // Caja de datos principales
+    const bY = doc.y;
+    doc.rect(M, bY, W, 110).fill(GRIS).stroke('#e2e8f0');
+    const col1=M+16, col2=M+W/2+16, colW=(W/2)-24;
+    const dataRows=[
+      ['No. Reporte:', r.numero_reporte||'—',  'Fecha Reporte:', fmt(r.fecha_reporte)],
+      ['Cliente:',    r.cliente_nombre||'—',   'Fecha Servicio:', fmt(r.fecha_servicio)||'—'],
+      ['Proyecto:',   r.proyecto_nombre||'—',  'Técnico:', r.tecnico||'—'],
+      ['Estatus:',    (r.estatus||'borrador').toUpperCase(), 'RFC Cliente:', r.cliente_rfc||'—'],
+    ];
+    let dy = bY+10;
+    for(const row of dataRows){
+      doc.fillColor(AZUL).fontSize(8).font('Helvetica-Bold').text(row[0],col1,dy,{width:80});
+      doc.fillColor(TEXTO).fontSize(8).font('Helvetica').text(row[1],col1+82,dy,{width:colW-82});
+      doc.fillColor(AZUL).fontSize(8).font('Helvetica-Bold').text(row[2],col2,dy,{width:90});
+      doc.fillColor(TEXTO).fontSize(8).font('Helvetica').text(row[3],col2+92,dy,{width:colW-92});
+      dy+=22;
+    }
+    doc.y = bY+120;
+
+    // ── ÍNDICE ────────────────────────────────────────────────
+    doc.addPage();
+    doc.fillColor(AZUL).fontSize(16).font('Helvetica-Bold').text('ÍNDICE', M, 50, {width:W});
+    doc.moveTo(M,70).lineTo(M+W,70).lineWidth(2).strokeColor(AZUL_MED).stroke();
+    doc.moveDown(0.8);
+
+    const secciones = [
+      {num:1, titulo:'Introducción',             campo:'introduccion'},
+      {num:2, titulo:'Objetivo',                  campo:'objetivo'},
+      {num:3, titulo:'Alcance',                   campo:'alcance'},
+      {num:4, titulo:'Descripción del Sistema',   campo:'descripcion_sistema'},
+      {num:5, titulo:'Arquitectura del Sistema',  campo:'arquitectura'},
+      {num:6, titulo:'Desarrollo Técnico',        campo:'desarrollo_tecnico'},
+      {num:7, titulo:'Resultados de Pruebas',     campo:'resultados_pruebas'},
+      {num:8, titulo:'Problemas Detectados',      campo:'problemas_detectados'},
+      {num:9, titulo:'Soluciones Implementadas',  campo:'soluciones_implementadas'},
+      {num:10,titulo:'Conclusiones',              campo:'conclusiones'},
+      {num:11,titulo:'Recomendaciones',           campo:'recomendaciones'},
+      {num:12,titulo:'Anexos',                    campo:'anexos'},
+    ].filter(s => r[s.campo] && String(r[s.campo]).trim());
+
+    let iy = doc.y;
+    for(const s of secciones){
+      const hasContent = r[s.campo]&&String(r[s.campo]).trim();
+      if(!hasContent) continue;
+      doc.fillColor(AZUL_MED).fontSize(10).font('Helvetica-Bold')
+         .text(`${s.num}.`, M, iy, {width:24});
+      doc.fillColor(TEXTO).fontSize(10).font('Helvetica')
+         .text(s.titulo, M+28, iy, {width:W-80});
+      doc.fillColor('#94a3b8').fontSize(10).font('Helvetica')
+         .text('..................', M+W-60, iy, {width:60,align:'right'});
+      iy += 22;
+    }
+
+    // ── SECCIONES DEL REPORTE ────────────────────────────────
+    function addSeccion(titulo, contenido){
+      if(!contenido||!String(contenido).trim()) return;
+      secNum++;
+      doc.addPage();
+      // Encabezado de sección
+      doc.rect(M, 30, W, 36).fill(AZUL);
+      doc.fillColor('#fff').fontSize(14).font('Helvetica-Bold')
+         .text(`${secNum}. ${titulo}`, M+14, 41, {width:W-28});
+      // Número de reporte en esquina
+      doc.fillColor('#A8C5F0').fontSize(8).font('Helvetica')
+         .text(r.numero_reporte||'', M+W-80, 37, {width:80, align:'right'});
+      doc.y = 80;
+      doc.fillColor(TEXTO).fontSize(10).font('Helvetica')
+         .text(String(contenido).trim(), M, doc.y, {width:W, lineGap:4});
+    }
+
+    addSeccion('Introducción',            r.introduccion);
+    addSeccion('Objetivo',                r.objetivo);
+    addSeccion('Alcance',                 r.alcance);
+    addSeccion('Descripción del Sistema', r.descripcion_sistema);
+    addSeccion('Arquitectura del Sistema',r.arquitectura);
+    addSeccion('Desarrollo Técnico',      r.desarrollo_tecnico);
+    addSeccion('Resultados de Pruebas',   r.resultados_pruebas);
+    addSeccion('Problemas Detectados',    r.problemas_detectados);
+    addSeccion('Soluciones Implementadas',r.soluciones_implementadas);
+    addSeccion('Conclusiones',            r.conclusiones);
+    addSeccion('Recomendaciones',         r.recomendaciones);
+    addSeccion('Anexos',                  r.anexos);
+
+    // ── PIE EN CADA PÁGINA ───────────────────────────────────
+    const pages = doc.bufferedPageRange();
+    for(let i=0; i<doc._pageBuffer.length; i++){
+      doc.switchToPage(i);
+      const py = doc.page.height - 40;
+      doc.rect(M, py-8, W, 28).fill(AZUL);
+      doc.fillColor('#fff').fontSize(8).font('Helvetica-Bold')
+         .text(`${empNom}  |  ${r.numero_reporte||''}  |  Pág. ${i+1}`, M, py, {width:W, align:'center'});
+    }
+
+    doc.end();
+  });
+}
+
 const pdfDir = path.join(__dirname,'pdfs_guardados');
 
 // Helper para guardar PDF en disco y registrar en BD
@@ -3441,6 +3821,128 @@ app.delete('/api/pdfs/:id', auth, adminOnly, async (req,res)=>{
     await QR(req,'DELETE FROM pdfs_guardados WHERE id=$1',[req.params.id]);
     res.json({ok:true});
   } catch(e){ res.status(500).json({error:e.message}); }
+});
+
+// ================================================================
+// REPORTES DE SERVICIO
+// ================================================================
+app.get('/api/reportes-servicio', auth, async (req,res)=>{
+  try{
+    const rows = await QR(req,`
+      SELECT rs.*,
+        cl.nombre cliente_nombre,
+        p.nombre proyecto_nombre
+      FROM reportes_servicio rs
+      LEFT JOIN clientes cl ON cl.id=rs.cliente_id
+      LEFT JOIN proyectos p ON p.id=rs.proyecto_id
+      ORDER BY rs.created_at DESC`);
+    res.json(rows);
+  }catch(e){ res.status(500).json({error:e.message}); }
+});
+
+app.get('/api/reportes-servicio/:id', auth, async (req,res)=>{
+  try{
+    const rows = await QR(req,`
+      SELECT rs.*,
+        cl.nombre cliente_nombre, cl.rfc cliente_rfc,
+        cl.email cliente_email, cl.telefono cliente_tel,
+        p.nombre proyecto_nombre
+      FROM reportes_servicio rs
+      LEFT JOIN clientes cl ON cl.id=rs.cliente_id
+      LEFT JOIN proyectos p ON p.id=rs.proyecto_id
+      WHERE rs.id=$1`,[req.params.id]);
+    if(!rows.length) return res.status(404).json({error:'No encontrado'});
+    res.json(rows[0]);
+  }catch(e){ res.status(500).json({error:e.message}); }
+});
+
+app.post('/api/reportes-servicio', auth, async (req,res)=>{
+  try{
+    const {titulo,cliente_id,proyecto_id,fecha_reporte,fecha_servicio,tecnico,
+           introduccion,objetivo,alcance,descripcion_sistema,arquitectura,
+           desarrollo_tecnico,resultados_pruebas,problemas_detectados,
+           soluciones_implementadas,conclusiones,recomendaciones,anexos} = req.body;
+    if(!titulo) return res.status(400).json({error:'Título requerido'});
+    const yr = new Date().getFullYear();
+    const cnt = await QR(req,'SELECT COUNT(*) val FROM reportes_servicio');
+    const num = `RS-${yr}-${String(parseInt(cnt[0]?.val||0)+1).padStart(3,'0')}`;
+    const rows = await QR(req,`
+      INSERT INTO reportes_servicio (numero_reporte,titulo,cliente_id,proyecto_id,
+        fecha_reporte,fecha_servicio,tecnico,estatus,
+        introduccion,objetivo,alcance,descripcion_sistema,arquitectura,
+        desarrollo_tecnico,resultados_pruebas,problemas_detectados,
+        soluciones_implementadas,conclusiones,recomendaciones,anexos,created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,'borrador',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+      RETURNING *`,
+      [num,titulo,cliente_id||null,proyecto_id||null,
+       fecha_reporte||new Date().toISOString().slice(0,10),
+       fecha_servicio||null, tecnico||req.user.nombre||'VEF',
+       introduccion||null,objetivo||null,alcance||null,descripcion_sistema||null,
+       arquitectura||null,desarrollo_tecnico||null,resultados_pruebas||null,
+       problemas_detectados||null,soluciones_implementadas||null,
+       conclusiones||null,recomendaciones||null,anexos||null,req.user.id]);
+    res.status(201).json(rows[0]);
+  }catch(e){ console.error('RS POST:',e.message); res.status(500).json({error:e.message}); }
+});
+
+app.put('/api/reportes-servicio/:id', auth, async (req,res)=>{
+  try{
+    const b = req.body;
+    const sets=[]; const vals=[]; let i=1;
+    const add=(k,v)=>{ sets.push(`${k}=$${i++}`); vals.push(v); };
+    if(b.titulo!==undefined)                  add('titulo',b.titulo);
+    if(b.cliente_id!==undefined)              add('cliente_id',b.cliente_id||null);
+    if(b.proyecto_id!==undefined)             add('proyecto_id',b.proyecto_id||null);
+    if(b.fecha_reporte!==undefined)           add('fecha_reporte',b.fecha_reporte);
+    if(b.fecha_servicio!==undefined)          add('fecha_servicio',b.fecha_servicio||null);
+    if(b.tecnico!==undefined)                 add('tecnico',b.tecnico);
+    if(b.estatus!==undefined)                 add('estatus',b.estatus);
+    if(b.introduccion!==undefined)            add('introduccion',b.introduccion);
+    if(b.objetivo!==undefined)                add('objetivo',b.objetivo);
+    if(b.alcance!==undefined)                 add('alcance',b.alcance);
+    if(b.descripcion_sistema!==undefined)     add('descripcion_sistema',b.descripcion_sistema);
+    if(b.arquitectura!==undefined)            add('arquitectura',b.arquitectura);
+    if(b.desarrollo_tecnico!==undefined)      add('desarrollo_tecnico',b.desarrollo_tecnico);
+    if(b.resultados_pruebas!==undefined)      add('resultados_pruebas',b.resultados_pruebas);
+    if(b.problemas_detectados!==undefined)    add('problemas_detectados',b.problemas_detectados);
+    if(b.soluciones_implementadas!==undefined)add('soluciones_implementadas',b.soluciones_implementadas);
+    if(b.conclusiones!==undefined)            add('conclusiones',b.conclusiones);
+    if(b.recomendaciones!==undefined)         add('recomendaciones',b.recomendaciones);
+    if(b.anexos!==undefined)                  add('anexos',b.anexos);
+    sets.push(`updated_at=NOW()`);
+    vals.push(req.params.id);
+    await QR(req,`UPDATE reportes_servicio SET ${sets.join(',')} WHERE id=$${i}`,vals);
+    const rows = await QR(req,'SELECT * FROM reportes_servicio WHERE id=$1',[req.params.id]);
+    res.json(rows[0]||{});
+  }catch(e){ console.error('RS PUT:',e.message); res.status(500).json({error:e.message}); }
+});
+
+app.delete('/api/reportes-servicio/:id', auth, adminOnly, async (req,res)=>{
+  try{ await QR(req,'DELETE FROM reportes_servicio WHERE id=$1',[req.params.id]); res.json({ok:true}); }
+  catch(e){ res.status(500).json({error:e.message}); }
+});
+
+// ── PDF del Reporte de Servicio ───────────────────────────────────
+app.get('/api/reportes-servicio/:id/pdf', auth, async (req,res)=>{
+  try{
+    const rows = await QR(req,`
+      SELECT rs.*,
+        cl.nombre cliente_nombre,cl.rfc cliente_rfc,cl.email cliente_email,
+        cl.telefono cliente_tel,cl.direccion cliente_dir,
+        p.nombre proyecto_nombre
+      FROM reportes_servicio rs
+      LEFT JOIN clientes cl ON cl.id=rs.cliente_id
+      LEFT JOIN proyectos p ON p.id=rs.proyecto_id
+      WHERE rs.id=$1`,[req.params.id]);
+    if(!rows.length) return res.status(404).json({error:'No encontrado'});
+    const r = rows[0];
+    const emp = await getEmpConfig(req.user?.schema);
+    const buf = await buildPDFReporteServicio(r, emp);
+    savePDFToFile(buf,'reporte_servicio',r.id,r.numero_reporte,r.cliente_nombre,req.user?.id,req.user?.schema).catch(()=>{});
+    res.setHeader('Content-Type','application/pdf');
+    res.setHeader('Content-Disposition',`inline; filename="RS-${r.numero_reporte||r.id}.pdf"`);
+    res.send(buf);
+  }catch(e){ console.error('RS PDF:',e.message); res.status(500).json({error:e.message}); }
 });
 
 // ================================================================
