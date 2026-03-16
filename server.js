@@ -2867,6 +2867,7 @@ app.get('/api/reportes-servicio/:id/pdf', auth, async (req,res)=>{
       SELECT rs.*,
         cl.nombre cliente_nombre,cl.rfc cliente_rfc,cl.email cliente_email,
         cl.telefono cliente_tel,cl.direccion cliente_dir,
+        cl.contacto cliente_contacto,cl.ciudad cliente_ciudad,
         p.nombre proyecto_nombre
       FROM reportes_servicio rs
       LEFT JOIN clientes cl ON cl.id=rs.cliente_id
@@ -2997,6 +2998,7 @@ app.get('/api/reportes-servicio/:id/pdf', auth, async (req,res)=>{
       SELECT rs.*,
         cl.nombre cliente_nombre,cl.rfc cliente_rfc,cl.email cliente_email,
         cl.telefono cliente_tel,cl.direccion cliente_dir,
+        cl.contacto cliente_contacto,cl.ciudad cliente_ciudad,
         p.nombre proyecto_nombre
       FROM reportes_servicio rs
       LEFT JOIN clientes cl ON cl.id=rs.cliente_id
@@ -3657,25 +3659,54 @@ async function buildPDFReporteServicio(r, emp={}) {
        .text(r.titulo||'Sin título', M, doc.y, {width:W, align:'center'});
     doc.moveDown(1.5);
 
-    // Caja de datos principales
+    // ── CAJA DATOS DEL REPORTE ───────────────────────────────
     const bY = doc.y;
-    doc.rect(M, bY, W, 110).fill(GRIS).stroke('#e2e8f0');
-    const col1=M+16, col2=M+W/2+16, colW=(W/2)-24;
     const dataRows=[
-      ['No. Reporte:', r.numero_reporte||'—',  'Fecha Reporte:', fmt(r.fecha_reporte)],
-      ['Cliente:',    r.cliente_nombre||'—',   'Fecha Servicio:', fmt(r.fecha_servicio)||'—'],
-      ['Proyecto:',   r.proyecto_nombre||'—',  'Técnico:', r.tecnico||'—'],
-      ['Estatus:',    (r.estatus||'borrador').toUpperCase(), 'RFC Cliente:', r.cliente_rfc||'—'],
+      ['No. Reporte:', r.numero_reporte||'—',       'Fecha Reporte:',  fmt(r.fecha_reporte)||'—'],
+      ['Fecha Servicio:', fmt(r.fecha_servicio)||'—','Técnico:',        r.tecnico||'—'],
+      ['Estatus:',    (r.estatus||'borrador').toUpperCase(), 'Proyecto:', r.proyecto_nombre||'—'],
     ];
+    const boxH = 10 + dataRows.length*22 + 8;
+    doc.rect(M, bY, W, boxH).fill(GRIS).stroke('#e2e8f0');
+    const col1=M+16, col2=M+W/2+16, colW=(W/2)-24;
     let dy = bY+10;
     for(const row of dataRows){
-      doc.fillColor(AZUL).fontSize(8).font('Helvetica-Bold').text(row[0],col1,dy,{width:80});
-      doc.fillColor(TEXTO).fontSize(8).font('Helvetica').text(row[1],col1+82,dy,{width:colW-82});
-      doc.fillColor(AZUL).fontSize(8).font('Helvetica-Bold').text(row[2],col2,dy,{width:90});
-      doc.fillColor(TEXTO).fontSize(8).font('Helvetica').text(row[3],col2+92,dy,{width:colW-92});
+      doc.fillColor(AZUL).fontSize(8).font('Helvetica-Bold').text(row[0],col1,dy,{width:88});
+      doc.fillColor(TEXTO).fontSize(8).font('Helvetica').text(row[1],col1+90,dy,{width:colW-90});
+      doc.fillColor(AZUL).fontSize(8).font('Helvetica-Bold').text(row[2],col2,dy,{width:88});
+      doc.fillColor(TEXTO).fontSize(8).font('Helvetica').text(row[3],col2+90,dy,{width:colW-90});
       dy+=22;
     }
-    doc.y = bY+120;
+    doc.y = bY+boxH+12;
+
+    // ── CAJA DATOS DEL CLIENTE ────────────────────────────────
+    if(r.cliente_nombre){
+      const cY = doc.y;
+      doc.rect(M, cY, W, 36).fill(AZUL_MED);
+      doc.fillColor('#fff').fontSize(9).font('Helvetica-Bold')
+         .text('DATOS DEL CLIENTE', M+14, cY+10, {width:W-28});
+      doc.y = cY+36;
+      const cboxH = 10 + 4*20 + 8;
+      doc.rect(M, doc.y, W, cboxH).fill('#f0f4ff').stroke('#bfdbfe');
+      const cY2 = doc.y;
+      const cRows=[
+        ['Cliente / Razón Social:', r.cliente_nombre||'—',   'RFC:',       r.cliente_rfc||'—'],
+        ['Contacto:',               r.cliente_contacto||'—', 'Ciudad:',    r.cliente_ciudad||'—'],
+        ['Teléfono:',               r.cliente_tel||'—',      'Email:',     r.cliente_email||'—'],
+        ['Dirección:',              r.cliente_dir||'—',       '',           ''],
+      ];
+      let cdy = cY2+10;
+      for(const row of cRows){
+        doc.fillColor(AZUL).fontSize(8).font('Helvetica-Bold').text(row[0],col1,cdy,{width:110});
+        doc.fillColor(TEXTO).fontSize(8).font('Helvetica').text(row[1],col1+112,cdy,{width:colW-112});
+        if(row[2]){
+          doc.fillColor(AZUL).fontSize(8).font('Helvetica-Bold').text(row[2],col2,cdy,{width:88});
+          doc.fillColor(TEXTO).fontSize(8).font('Helvetica').text(row[3],col2+90,cdy,{width:colW-90});
+        }
+        cdy+=20;
+      }
+      doc.y = cY2+cboxH+10;
+    }
 
     // ── ÍNDICE ────────────────────────────────────────────────
     doc.addPage();
@@ -3929,6 +3960,7 @@ app.get('/api/reportes-servicio/:id/pdf', auth, async (req,res)=>{
       SELECT rs.*,
         cl.nombre cliente_nombre,cl.rfc cliente_rfc,cl.email cliente_email,
         cl.telefono cliente_tel,cl.direccion cliente_dir,
+        cl.contacto cliente_contacto,cl.ciudad cliente_ciudad,
         p.nombre proyecto_nombre
       FROM reportes_servicio rs
       LEFT JOIN clientes cl ON cl.id=rs.cliente_id
