@@ -1264,7 +1264,7 @@ async function proyectos(){
           <td>${p.id}</td>
           <td><strong>${esc(p.nombre)}</strong></td>
           <td>${esc(p.cliente_nombre||'—')}</td>
-          <td>${esc(p.responsable||'VEF Automatización')}</td>
+          <td>${esc(p.responsable||'—')}</td>
           <td>${badge(p.estatus)}</td>
           <td>${fmtDate(p.fecha||p.fecha_creacion||p.created_at)}</td>
         </tr>`).join('')||'<tr><td colspan="6" style="color:#aaa;text-align:center;padding:30px">Sin proyectos registrados</td></tr>'}
@@ -1287,7 +1287,7 @@ function proyForm(ed=null){
     <div class="form-grid form-grid-2">
       <div class="field-group" style="grid-column:1/-1"><label class="field-required">Nombre del Proyecto</label><input id="pn" value="${esc(ed?.nombre||'')}"></div>
       <div class="field-group"><label>Cliente</label><select id="pc"><option value="">-- Sin cliente --</option>${clts}</select></div>
-      <div class="field-group"><label>Responsable</label><input id="pr" value="${esc(ed?.responsable||'VEF Automatización')}"></div>
+      <div class="field-group"><label>Responsable</label><input id="pr" value="${esc(ed?.responsable||USER?.nombre||'')}"></div>
       <div class="field-group"><label>Estatus</label><select id="pe">
         ${['activo','pausado','cerrado','cancelado'].map(s=>`<option ${(ed?.estatus||'activo')===s?'selected':''}>${s}</option>`).join('')}
       </select></div>

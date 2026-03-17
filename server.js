@@ -152,7 +152,7 @@ const Q = async (sql, p=[], schema=null) => {
 };
 
 // QR(req, sql, params) — usa schema del usuario autenticado en la request
-const QR = async (req, sql, p=[]) => Q(sql, p, req.user?.schema || global._defaultSchema);
+const QR = async (req, sql, p=[]) => Q(sql, p, req.user?.schema || req.user?.schema_name || global._defaultSchema);
 
 // ── MIDDLEWARE ───────────────────────────────────────────────────
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -1231,18 +1231,19 @@ app.post('/api/auth/login', async (req,res) => {
     // Actualizar último acceso
     try { await pool.query('UPDATE public.usuarios SET ultimo_acceso=NOW() WHERE id=$1',[user.id]); } catch{}
 
-    // Empresa del usuario
-    let empId  = user.empresa_id  || global._defaultEmpresaId;
-    let schema = user.schema_name || global._defaultSchema || 'emp_vef';
-    if(!user.empresa_id && user.rol==='admin'){
-      empId  = global._defaultEmpresaId;
-      schema = global._defaultSchema || 'emp_vef';
-      try { await pool.query('UPDATE public.usuarios SET empresa_id=$1,schema_name=$2 WHERE id=$3',[empId,schema,user.id]); } catch{}
-    }
-
-    // Nombre de empresa
+    // Empresa del usuario — siempre derivar schema del slug en la BD
+    let empId = user.empresa_id || global._defaultEmpresaId;
     const empRow = await pool.query('SELECT nombre,slug FROM public.empresas WHERE id=$1 LIMIT 1',[empId]);
+    const empSlug = empRow.rows[0]?.slug || 'vef';
     const empNombre = empRow.rows[0]?.nombre || 'VEF Automatización';
+    // Schema siempre derivado del slug — ignora schema_name que puede estar corrupto
+    let schema = 'emp_' + empSlug.replace(/[^a-z0-9]/g,'_');
+    // Fallback al schema_name del usuario si no hay empresa
+    if(!empRow.rows[0]) schema = user.schema_name || global._defaultSchema || 'emp_vef';
+    // Actualizar schema_name del usuario si está desactualizado
+    if(user.schema_name !== schema){
+      try { await pool.query('UPDATE public.usuarios SET schema_name=$1,empresa_id=$2 WHERE id=$3',[schema,empId,user.id]); } catch{}
+    }
 
     // Verificar suscripción
     if(!empId){
@@ -1286,16 +1287,23 @@ app.get('/api/auth/verify', auth, async (req,res)=>{
     const u = fresh.rows[0];
     if(u.activo===false) return res.status(401).json({error:'Usuario desactivado'});
     // Obtener nombre de empresa
-    let empresa_nombre = req.user.empresa_nombre || '';
-    if(u.empresa_id && !empresa_nombre){
-      const emp = await pool.query('SELECT nombre FROM public.empresas WHERE id=$1',[u.empresa_id]);
-      empresa_nombre = emp[0]?.nombre || '';
+    // Siempre obtener nombre fresco de la BD
+    let empresa_nombre = '';
+    let empresa_schema = u.schema_name || global._defaultSchema || 'emp_vef';
+    if(u.empresa_id){
+      const empR = await pool.query('SELECT nombre,slug FROM public.empresas WHERE id=$1',[u.empresa_id]);
+      empresa_nombre = empR.rows[0]?.nombre || '';
+      // Asegurar schema correcto basado en slug
+      if(empR.rows[0]?.slug && !u.schema_name){
+        empresa_schema = 'emp_' + empR.rows[0].slug.replace(/[^a-z0-9]/g,'_');
+      }
     }
+    empresa_nombre = empresa_nombre || req.user.empresa_nombre || 'VEF Automatización';
     res.json({ ok:true, user:{
       id:u.id, username:u.username, nombre:u.nombre,
       email:u.email, rol:u.rol||'usuario',
-      empresa_id:u.empresa_id, schema_name:u.schema_name,
-      empresa_nombre, schema:u.schema_name,
+      empresa_id:u.empresa_id, schema_name:empresa_schema,
+      empresa_nombre, schema:empresa_schema,
       trial:req.user.trial, dias_restantes:req.user.dias_restantes
     }});
   } catch(e){ res.json({ ok:true, user: req.user }); }
@@ -1330,7 +1338,8 @@ app.post('/api/auth/change-password', auth, async (req,res)=>{
 // DASHBOARD
 // ================================================================
 app.get('/api/dashboard/metrics', auth, async (req,res)=>{
-  const schema = (req.user?.schema || global._defaultSchema || 'emp_vef').replace(/"/g,'');
+  // Schema del usuario — siempre del JWT que viene del login
+  const schema = (req.user?.schema || req.user?.schema_name || global._defaultSchema || 'emp_vef').replace(/["']/g,'');
   const mes_actual = new Date().toLocaleDateString('es-MX',{month:'long',year:'numeric'});
   const base = {cotizaciones_activas:0,clientes:0,proveedores:0,items_inventario:0,
     facturas_pendientes:0,tareas_pendientes:0,ing_mes:0,egr_mes:0,cob_mes:0,
