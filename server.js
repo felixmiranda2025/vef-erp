@@ -1555,15 +1555,27 @@ app.post('/api/admin/usuarios', auth, async (req,res)=>{
     const {username,nombre,password,rol='usuario',empresa_id} = req.body;
     if(!username||!password) return res.status(400).json({error:'username y password requeridos'});
     const hash = await bcrypt.hash(password,10);
+    // Derivar schema del slug de la empresa
     let schema = null;
-    if(empresa_id){
-      const emp = await pool.query('SELECT slug FROM public.empresas WHERE id=$1',[empresa_id]);
-      if(emp.rows.length) schema='emp_'+(emp.rows[0]?.slug||'').replace(/[^a-z0-9]/g,'_');
+    let finalEmpId = empresa_id || null;
+    if(finalEmpId){
+      const emp = await pool.query('SELECT slug FROM public.empresas WHERE id=$1',[finalEmpId]);
+      if(emp.rows[0]?.slug) schema = 'emp_'+emp.rows[0].slug.replace(/[^a-z0-9]/g,'_');
     }
+    // Si no se especificó empresa, usar la del admin que crea
+    if(!finalEmpId && req.user.empresa_id){
+      finalEmpId = req.user.empresa_id;
+      // Derivar schema desde slug
+      const adminEmpR = await pool.query('SELECT slug FROM public.empresas WHERE id=$1',[finalEmpId]);
+      if(adminEmpR.rows[0]?.slug) schema = 'emp_'+adminEmpR.rows[0].slug.replace(/[^a-z0-9]/g,'_');
+      else schema = req.user.schema || req.user.schema_name;
+    }
+    // Generar email si no se proporcionó
+    const userEmail = username.includes('@') ? username : username+'@'+((schema||'vef').replace('emp_',''))+'.com';
     const r = await pool.query(
       `INSERT INTO public.usuarios(username,nombre,rol,password_hash,password,activo,email,empresa_id,schema_name)
        VALUES($1,$2,$3,$4,$4,true,$5,$6,$7) RETURNING id,username,nombre,rol`,
-      [username,nombre||username,rol,hash,username+'@vef.com',empresa_id||null,schema]);
+      [username, nombre||username, rol, hash, userEmail, finalEmpId, schema]);
     res.status(201).json({ok:true, usuario:r.rows[0]});
   } catch(e){ 
     console.error('crear usuario admin:', e.message);
@@ -1573,6 +1585,20 @@ app.post('/api/admin/usuarios', auth, async (req,res)=>{
 
 // ── Panel de administración global (solo admin) ───────────
 // (admin panel endpoint moved to /api/admin/* section above)
+
+// ── Lista de empresas (para selector en formulario de usuarios) ──
+app.get('/api/empresas-lista', auth, async (req,res)=>{
+  try{
+    // Admin del sistema ve todas; admin de empresa solo ve la suya
+    let rows;
+    if(req.user.rol==='admin'){
+      rows = await pool.query('SELECT id,nombre,slug,activa FROM public.empresas WHERE activa=true ORDER BY nombre');
+    } else {
+      rows = await pool.query('SELECT id,nombre,slug FROM public.empresas WHERE id=$1',[req.user.empresa_id]);
+    }
+    res.json(rows.rows);
+  }catch(e){ res.status(500).json({error:e.message}); }
+});
 
 // ================================================================
 // REPORTES
@@ -2721,22 +2747,28 @@ app.delete('/api/inventario/:id', auth, adminOnly, async (req,res)=>{
 // USUARIOS
 // ================================================================
 app.get('/api/usuarios', auth, adminOnly, async (req,res)=>{
-  const emailCol=has('usuarios','email')?'email,':'';
-  res.json(await QR(req,`SELECT id,username,nombre,${emailCol}rol,activo,ultimo_acceso FROM usuarios ORDER BY nombre`));
+  res.json(await pool.query('SELECT id,username,nombre,email,rol,activo,ultimo_acceso,empresa_id,schema_name FROM public.usuarios WHERE empresa_id=$1 ORDER BY nombre',[req.user.empresa_id]).then(r=>r.rows).catch(()=>[]));
 });
 app.post('/api/usuarios', auth, adminOnly, async (req,res)=>{
   try {
     const {username,nombre,email,password,rol}=req.body;
     if(!username||!password) return res.status(400).json({error:'username y password requeridos'});
     const hash=await bcrypt.hash(password,12);
-    // Siempre incluir password_hash Y password (NOT NULL en BD heredada)
-    const cols=['username','nombre','rol','password_hash','password'];
-    const vals=[username,nombre||username,rol||'usuario',hash,hash];
-    if(email){cols.push('email');vals.push(email);}
-    cols.push('activo'); vals.push(true);
-    // Add empresa_id and schema_name from current user's context
-    if(has('usuarios','empresa_id')){cols.push('empresa_id');vals.push(req.user.empresa_id||null);}
-    if(has('usuarios','schema_name')){cols.push('schema_name');vals.push(req.user.schema||null);}
+    // Siempre usar la empresa del usuario que crea si no se especifica otra
+    // empresa_id null/undefined/0 => heredar del creador
+    const bodyEmpId = req.body.empresa_id ? parseInt(req.body.empresa_id) : null;
+    const creatorEmpId = bodyEmpId || req.user.empresa_id || null;
+    // Siempre derivar schema desde slug en BD — nunca confiar en datos del JWT
+    let creatorSchema = req.user.schema || req.user.schema_name || null;
+    if(creatorEmpId){
+      const empR = await pool.query('SELECT slug FROM public.empresas WHERE id=$1',[creatorEmpId]);
+      if(empR.rows[0]?.slug){
+        creatorSchema = 'emp_'+empR.rows[0].slug.replace(/[^a-z0-9]/g,'_');
+      }
+    }
+    const emailVal = email || (username.includes('@')?username:username+'@erp.local');
+    const cols=['username','nombre','rol','password_hash','password','activo','email','empresa_id','schema_name'];
+    const vals=[username, nombre||username, rol||'usuario', hash, hash, true, emailVal, creatorEmpId, creatorSchema];
     const ph=vals.map((_,i)=>`$${i+1}`).join(',');
     const {rows}=await pool.query(`INSERT INTO public.usuarios (${cols.join(',')}) VALUES (${ph}) RETURNING id,username,nombre,rol`,vals);
     res.status(201).json(rows[0]);
@@ -2800,6 +2832,20 @@ app.post('/api/usuarios/:id/reset-password', auth, adminOnly, async (req,res)=>{
     console.error('reset-password:', e.message);
     res.status(500).json({error:e.message}); 
   }
+});
+
+// ── Lista de empresas (para selector en formulario de usuarios) ──
+app.get('/api/empresas-lista', auth, async (req,res)=>{
+  try{
+    // Admin del sistema ve todas; admin de empresa solo ve la suya
+    let rows;
+    if(req.user.rol==='admin'){
+      rows = await pool.query('SELECT id,nombre,slug,activa FROM public.empresas WHERE activa=true ORDER BY nombre');
+    } else {
+      rows = await pool.query('SELECT id,nombre,slug FROM public.empresas WHERE id=$1',[req.user.empresa_id]);
+    }
+    res.json(rows.rows);
+  }catch(e){ res.status(500).json({error:e.message}); }
 });
 
 // ================================================================
@@ -2931,6 +2977,20 @@ app.get('/api/reportes-servicio/:id/pdf', auth, async (req,res)=>{
 app.get('/api/logo/status', auth, (req,res)=>{
   const lp=getLogoPath();
   res.json({found:!!lp, filename:lp?path.basename(lp):null});
+});
+
+// ── Lista de empresas (para selector en formulario de usuarios) ──
+app.get('/api/empresas-lista', auth, async (req,res)=>{
+  try{
+    // Admin del sistema ve todas; admin de empresa solo ve la suya
+    let rows;
+    if(req.user.rol==='admin'){
+      rows = await pool.query('SELECT id,nombre,slug,activa FROM public.empresas WHERE activa=true ORDER BY nombre');
+    } else {
+      rows = await pool.query('SELECT id,nombre,slug FROM public.empresas WHERE id=$1',[req.user.empresa_id]);
+    }
+    res.json(rows.rows);
+  }catch(e){ res.status(500).json({error:e.message}); }
 });
 
 // ================================================================
@@ -3575,6 +3635,20 @@ app.delete('/api/tareas/:id', auth, async (req,res)=>{
   catch(e){ res.status(500).json({error:e.message}); }
 });
 
+// ── Lista de empresas (para selector en formulario de usuarios) ──
+app.get('/api/empresas-lista', auth, async (req,res)=>{
+  try{
+    // Admin del sistema ve todas; admin de empresa solo ve la suya
+    let rows;
+    if(req.user.rol==='admin'){
+      rows = await pool.query('SELECT id,nombre,slug,activa FROM public.empresas WHERE activa=true ORDER BY nombre');
+    } else {
+      rows = await pool.query('SELECT id,nombre,slug FROM public.empresas WHERE id=$1',[req.user.empresa_id]);
+    }
+    res.json(rows.rows);
+  }catch(e){ res.status(500).json({error:e.message}); }
+});
+
 // ================================================================
 // REPORTES SAT — DIOT, ingresos, egresos
 // ================================================================
@@ -3893,6 +3967,20 @@ app.delete('/api/pdfs/:id', auth, adminOnly, async (req,res)=>{
     await QR(req,'DELETE FROM pdfs_guardados WHERE id=$1',[req.params.id]);
     res.json({ok:true});
   } catch(e){ res.status(500).json({error:e.message}); }
+});
+
+// ── Lista de empresas (para selector en formulario de usuarios) ──
+app.get('/api/empresas-lista', auth, async (req,res)=>{
+  try{
+    // Admin del sistema ve todas; admin de empresa solo ve la suya
+    let rows;
+    if(req.user.rol==='admin'){
+      rows = await pool.query('SELECT id,nombre,slug,activa FROM public.empresas WHERE activa=true ORDER BY nombre');
+    } else {
+      rows = await pool.query('SELECT id,nombre,slug FROM public.empresas WHERE id=$1',[req.user.empresa_id]);
+    }
+    res.json(rows.rows);
+  }catch(e){ res.status(500).json({error:e.message}); }
 });
 
 // ================================================================
