@@ -202,20 +202,27 @@ async function getMailer(schema) {
     const cfg = rows[0];
     if(cfg?.smtp_host && cfg?.smtp_user && cfg?.smtp_pass) {
       const port = parseInt(cfg.smtp_port)||465;
-      // Puerto 465 = SSL implícito, 587 = STARTTLS, otros = STARTTLS
-      const secure = port === 465;
+      const isGmail = cfg.smtp_host?.includes('gmail.com');
+      const isZoho  = cfg.smtp_host?.includes('zoho.com');
+      const secure  = port === 465; // 465=SSL, 587=STARTTLS
       return nodemailer.createTransport({
         host: cfg.smtp_host,
         port,
         secure,
-        auth: { user: cfg.smtp_user, pass: cfg.smtp_pass },
+        auth: {
+          user: cfg.smtp_user,
+          pass: cfg.smtp_pass,
+          // Gmail con OAuth no necesita type especial
+        },
         connectionTimeout: 30000,
         greetingTimeout: 15000,
         socketTimeout: 30000,
-        tls: { rejectUnauthorized: false },
-        // Para Zoho y algunos proveedores cloud
+        tls: {
+          rejectUnauthorized: false,
+          // Gmail requiere SNI
+          servername: cfg.smtp_host,
+        },
         requireTLS: port === 587,
-        opportunisticTLS: port === 587,
       });
     }
     // Fallback a .env

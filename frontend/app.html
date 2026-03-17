@@ -2995,7 +2995,8 @@ async function configuracion(){
         <div class="form-grid form-grid-2" style="gap:14px">
           <div class="field-group" style="grid-column:1/-1">
             <div style="background:#f0fdf4;border-left:3px solid #059669;padding:10px 14px;border-radius:4px;font-size:.84rem;margin-bottom:4px">
-              ✅ Los datos SMTP se guardan en la base de datos y se usan directamente al enviar correos. No se requiere editar el <code>.env</code>.
+              ✅ Los datos SMTP se guardan en la BD de esta empresa. No se requiere editar el <code>.env</code>.<br>
+              <span style="color:#dc2626;font-size:.78rem;font-weight:600">⚠️ Gmail y Zoho con 2FA requieren <u>Contraseña de App</u>, NO la contraseña normal de tu cuenta.</span>
             </div>
           </div>
           <div class="field-group">
@@ -3030,7 +3031,10 @@ async function configuracion(){
               <strong>Gmail</strong><br>
               Host: <code>smtp.gmail.com</code><br>
               Puerto: <code>587</code> (TLS)<br>
-              <span style="color:#64748b">Requiere contraseña de app</span>
+              <span style="color:#dc2626;font-weight:600">⚠️ Requiere contraseña de app</span><br>
+              <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color:#2563eb;font-size:.73rem">
+                → Crear contraseña de app aquí
+              </a>
             </div>
             <div style="background:#fff;border-radius:6px;padding:8px;border:1px solid #e2e8f0">
               <strong>Outlook / Hotmail</strong><br>
@@ -3210,9 +3214,30 @@ async function testCorreoYGuardar(){
     await api('/api/email/test','POST',{to});
     msg.innerHTML = '<span style="color:var(--verde,#059669)">✅ ¡Correo enviado correctamente a '+esc(to)+'!</span>';
     toast('✅ Correo de prueba enviado');
-  }catch(e){ 
-    msg.innerHTML = '<span style="color:var(--rojo,#dc2626)">❌ Error: '+esc(e.message)+'</span>';
-    toast(e.message,'err');
+  }catch(e){
+    var errMsg = e.message||'Error desconocido';
+    var hint = '';
+    if(errMsg.includes('Invalid login') || errMsg.includes('BadCredentials') || errMsg.includes('Username and Password')){
+      hint = '<br><div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px;margin-top:8px;font-size:.8rem">' +
+        '<strong>🔑 Solución para Gmail:</strong><br>' +
+        '1. Activa la <strong>verificación en 2 pasos</strong> en tu cuenta Google<br>' +
+        '2. Ve a <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color:#2563eb">myaccount.google.com/apppasswords</a><br>' +
+        '3. Crea una contraseña de app para "Correo"<br>' +
+        '4. Usa esa contraseña de 16 caracteres (sin espacios) en el campo Contraseña SMTP<br>' +
+        '<strong>Para Zoho:</strong> Usa tu contraseña normal de Zoho o una contraseña de app si tienes 2FA activado.' +
+        '</div>';
+    } else if(errMsg.includes('timeout') || errMsg.includes('ETIMEDOUT') || errMsg.includes('ECONNREFUSED')){
+      hint = '<br><div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px;margin-top:8px;font-size:.8rem">' +
+        '<strong>🌐 Error de conexión:</strong><br>' +
+        '• Si usas Gmail: cambia puerto a <strong>587</strong><br>' +
+        '• Si usas Zoho: prueba puerto <strong>587</strong> en lugar de 465<br>' +
+        '• Verifica que el host SMTP esté correcto' +
+        '</div>';
+    } else if(errMsg.includes('ENOTFOUND') || errMsg.includes('getaddrinfo')){
+      hint = '<br><small style="color:#64748b">Verifica el nombre del servidor SMTP (ej: smtp.gmail.com, smtp.zoho.com)</small>';
+    }
+    msg.innerHTML = '<span style="color:var(--rojo,#dc2626)">❌ ' + esc(errMsg) + '</span>' + hint;
+    toast('Error al enviar correo','err');
   }
 }
 
