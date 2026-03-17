@@ -2375,15 +2375,66 @@ app.post('/api/cotizaciones/:id/email', auth, async (req,res)=>{
     const fromEmail = await getFromEmail(req.user?.schema);
     const empCfg = (await Q('SELECT nombre,telefono,email FROM empresa_config LIMIT 1',[],req.user?.schema))[0]||{};
     const nomEmp = empCfg.nombre||VEF_NOMBRE;
+    // Convertir saltos de línea del mensaje a HTML
+    const msgHtml = (mensaje||`Estimado/a ${cot.cliente_nombre||'Cliente'},\n\nPor medio del presente, me es grato hacerte llegar la cotización solicitada.\n\nEn el archivo adjunto (PDF) encontrarás el desglose de los precios, la descripción del servicio y las condiciones comerciales.\n\nQuedo atento a cualquier duda o comentario que puedas tener.\n\nSaludos cordiales,`)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\n/g,'<br>');
+
+    const htmlBody = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f4f6f9;font-family:Arial,Helvetica,sans-serif">
+<div style="max-width:620px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08)">
+  <!-- Header -->
+  <div style="background:#0D2B55;padding:28px 32px">
+    <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700">${nomEmp}</h1>
+    ${empCfg.telefono?`<p style="color:#A8C5F0;margin:6px 0 0;font-size:13px">📞 ${empCfg.telefono}</p>`:''}
+    ${(empCfg.email||fromEmail)?`<p style="color:#A8C5F0;margin:4px 0 0;font-size:13px">✉️ ${empCfg.email||fromEmail}</p>`:''}
+  </div>
+
+  <!-- Cotización badge -->
+  <div style="background:#1A4A8A;padding:14px 32px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <div>
+      <span style="color:#A8C5F0;font-size:11px;text-transform:uppercase;letter-spacing:1px">Cotización</span>
+      <div style="color:#fff;font-size:18px;font-weight:700;font-family:monospace">${cot.numero_cotizacion||'—'}</div>
+    </div>
+    <div style="text-align:right">
+      <span style="color:#A8C5F0;font-size:11px;text-transform:uppercase;letter-spacing:1px">Total</span>
+      <div style="color:#60d394;font-size:20px;font-weight:700">${sym}${parseFloat(cot.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})} ${cot.moneda||'USD'}</div>
+    </div>
+  </div>
+
+  <!-- Mensaje -->
+  <div style="padding:32px;color:#1e293b;line-height:1.7;font-size:15px">
+    ${msgHtml}
+  </div>
+
+  <!-- Info box -->
+  <div style="margin:0 32px 24px;background:#f0f7ff;border-left:4px solid #1A4A8A;border-radius:0 8px 8px 0;padding:16px">
+    <p style="margin:0;font-size:13px;color:#334155">
+      <strong>📄 Cotización:</strong> ${cot.numero_cotizacion||'—'}<br>
+      ${cot.proyecto_nombre?`<strong>📁 Proyecto:</strong> ${cot.proyecto_nombre}<br>`:''}
+      <strong>📅 Fecha:</strong> ${new Date().toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'})}<br>
+      <strong>💰 Total:</strong> ${sym}${parseFloat(cot.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})} ${cot.moneda||'USD'}
+    </p>
+  </div>
+
+  <!-- Footer -->
+  <div style="background:#0D2B55;padding:16px 32px;text-align:center">
+    <p style="color:#A8C5F0;margin:0;font-size:12px">
+      ${nomEmp}
+      ${empCfg.telefono?` · 📞 ${empCfg.telefono}`:''}
+      ${(empCfg.email||fromEmail)?` · ✉️ ${empCfg.email||fromEmail}`:''}
+    </p>
+    <p style="color:#64748b;margin:4px 0 0;font-size:11px">Este correo fue generado automáticamente por el sistema ERP</p>
+  </div>
+</div>
+</body></html>`;
+
     await dynMailer.sendMail({
       from:`"${nomEmp}" <${fromEmail}>`,
-      to,cc:cc||undefined,
+      to, cc:cc||undefined,
       subject:asunto||`Cotización ${cot.numero_cotizacion} — ${nomEmp}`,
-      html:`<div style="font-family:Arial,sans-serif;max-width:600px">
-        <div style="background:#0D2B55;padding:18px;text-align:center"><h2 style="color:#fff;margin:0">${nomEmp}</h2><p style="color:#A8C5F0;margin:4px 0">${empCfg.telefono||''}</p></div>
-        <div style="padding:20px"><p>${mensaje||'Estimado cliente, adjuntamos la cotización solicitada.'}</p>
-        <p><b>Cotización:</b> ${cot.numero_cotizacion}<br><b>Total:</b> ${sym}${parseFloat(cot.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})} ${cot.moneda||'USD'}</p></div>
-        <div style="background:#0D2B55;padding:10px;text-align:center;color:#A8C5F0;font-size:12px">${nomEmp} · ${empCfg.telefono||''} · ${empCfg.email||fromEmail}</div></div>`,
+      html: htmlBody,
       attachments:[{filename:`COT-${cot.numero_cotizacion}.pdf`,content:buf}]
     });
     res.json({ok:true,msg:`Correo enviado a ${to}`});

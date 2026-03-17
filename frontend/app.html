@@ -1554,18 +1554,60 @@ async function cotPDF(){
 }
 function cotEmail(){
   if(!_cotSel){toast('Selecciona una cotización','err');return;}
-  openModal('Enviar Cotización por Correo',`
-    <div class="form-grid">
-      <div class="field-group"><label class="field-required">Para (To)</label><input id="em_t" type="email" value="${esc(_cotData?.cliente_email||'')}"></div>
-      <div class="field-group"><label>CC</label><input id="em_c" type="email"></div>
-      <div class="field-group" style="grid-column:1/-1"><label>Mensaje</label><textarea id="em_m" rows="3">Estimado cliente, adjuntamos la cotización solicitada. Quedamos a sus órdenes.</textarea></div>
+  const clienteNombre = _cotData?.cliente_nombre || 'Cliente';
+  const servicio = _cotData?.proyecto_nombre || '[descripción del servicio]';
+  const mensajePredeterminado = 
+`Estimado/a ${clienteNombre},
+
+Por medio del presente, me es grato hacerte llegar la cotización solicitada para los servicios de ${servicio}.
+
+En el archivo adjunto (PDF) encontrarás el desglose de los precios, la descripción del servicio y las condiciones comerciales.
+
+Quedo atento a cualquier duda o comentario que puedas tener para concretar esta propuesta.
+
+Saludos cordiales,`;
+
+  openModalLg('✉️ Enviar Cotización por Correo',`
+    <div class="form-grid form-grid-2" style="gap:12px">
+      <div class="field-group">
+        <label class="field-required">Para (destinatario)</label>
+        <input id="em_t" type="email" value="${esc(_cotData?.cliente_email||'')}" placeholder="cliente@empresa.com">
+      </div>
+      <div class="field-group">
+        <label>CC (con copia)</label>
+        <input id="em_c" type="email" placeholder="otro@empresa.com">
+      </div>
+      <div class="field-group" style="grid-column:1/-1">
+        <label>Asunto</label>
+        <input id="em_s" value="Cotización ${esc(_cotData?.numero_cotizacion||'')} — ${esc(_cotData?.proyecto_nombre||'Servicios')}">
+      </div>
+      <div class="field-group" style="grid-column:1/-1">
+        <label>Mensaje del correo</label>
+        <textarea id="em_m" rows="8" style="font-size:.88rem;line-height:1.6">${mensajePredeterminado}</textarea>
+        <small style="color:#64748b;font-size:.75rem">El PDF de la cotización se adjunta automáticamente</small>
+      </div>
     </div>`,
   `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-   <button class="btn btn-primary" onclick="cotEmailSend()">✉️ Enviar</button>`);
+   <button class="btn btn-primary" onclick="cotEmailSend()">✉️ Enviar Cotización</button>`);
 }
 async function cotEmailSend(){
-  const to=ge('em_t').value.trim();if(!to){toast('Destinatario requerido','err');return;}
-  try{await api('/api/cotizaciones/'+_cotSel+'/email','POST',{to,cc:ge('em_c').value.trim()||undefined,mensaje:ge('em_m').value.trim()});toast('Correo enviado ✓');closeModal();}catch(e){toast(e.message,'err');}
+  const to=ge('em_t').value.trim();
+  if(!to){toast('Destinatario requerido','err');return;}
+  const btn = document.querySelector('[onclick="cotEmailSend()"]');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Enviando...'; }
+  try{
+    await api('/api/cotizaciones/'+_cotSel+'/email','POST',{
+      to,
+      cc:ge('em_c')?.value.trim()||undefined,
+      asunto:ge('em_s')?.value.trim()||undefined,
+      mensaje:ge('em_m').value.trim()
+    });
+    toast('✅ Correo enviado correctamente');
+    closeModal();
+  }catch(e){
+    toast(e.message,'err');
+    if(btn){ btn.disabled=false; btn.textContent='✉️ Enviar Cotización'; }
+  }
 }
 async function cotEliminar(){
   if(!_cotSel){toast('Selecciona una cotización','err');return;}
