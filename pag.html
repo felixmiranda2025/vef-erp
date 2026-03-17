@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VEF Automatización - Presentación Ejecutiva</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; overflow: hidden; }
+        .slide {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            transition: opacity 0.6s ease-in-out, transform 0.6s ease-in-out;
+            transform: translateX(100%);
+            display: none;
+        }
+        .slide.active {
+            opacity: 1;
+            transform: translateX(0);
+            display: flex;
+        }
+        .slide.prev {
+            transform: translateX(-100%);
+            opacity: 0;
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+        }
+        .accent-gradient {
+            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+        }
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .tech-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(249, 115, 22, 0.3);
+        }
+        .check-item {
+            animation: slideIn 0.5s ease-out forwards;
+            opacity: 0;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        .pulse-ring {
+            animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            100% { transform: scale(2); opacity: 0; }
+        }
+        .comparison-row:hover {
+            background: rgba(249, 115, 22, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-white h-screen w-screen relative">
+
+    <!-- Progress Bar -->
+    <div class="fixed top-0 left-0 w-full h-1 bg-slate-800 z-50">
+        <div id="progressBar" class="h-full accent-gradient transition-all duration-500" style="width: 12.5%"></div>
+    </div>
+
+    <!-- Navigation Controls -->
+    <div class="fixed bottom-8 right-8 z-50 flex gap-4">
+        <button onclick="prevSlide()" class="w-12 h-12 rounded-full glass-effect flex items-center justify-center hover:bg-orange-500 transition-all duration-300 group">
+            <i class="fas fa-chevron-left text-white group-hover:scale-110 transition-transform"></i>
+        </button>
+        <div class="px-4 py-2 rounded-full glass-effect flex items-center gap-2 text-sm font-semibold">
+            <span id="currentSlide">1</span> / <span id="totalSlides">8</span>
+        </div>
+        <button onclick="nextSlide()" class="w-12 h-12 rounded-full glass-effect flex items-center justify-center hover:bg-orange-500 transition-all duration-300 group">
+            <i class="fas fa-chevron-right text-white group-hover:scale-110 transition-transform"></i>
+        </button>
+    </div>
+
+    <!-- Logo Fixed -->
+    <div class="fixed top-8 left-8 z-50 flex items-center gap-3">
+        <div class="w-10 h-10 accent-gradient rounded-lg flex items-center justify-center font-bold text-xl">VEF</div>
+        <div class="hidden md:block">
+            <div class="font-bold text-lg leading-tight">VEF AUTOMATIZACIÓN</div>
+            <div class="text-xs text-orange-400 tracking-wider">VALOR · EFICIENCIA · FUTURO</div>
+        </div>
+    </div>
+
+    <!-- Slide 1: Cover -->
+    <div class="slide active gradient-bg flex-col justify-center items-center relative overflow-hidden">
+        <div class="absolute inset-0 opacity-20">
+            <img src="https://kimi-web-img.moonshot.cn/img/dc-mkt-prod.cloud.bosch.tech/c0e04a8efa474e210b9bd61e910b65ac0ab25122.jpg" class="w-full h-full object-cover" alt="Industrial Background">
+        </div>
+        <div class="absolute inset-0 bg-gradient-to-b from-slate-900/80 via-slate-900/60 to-slate-900/90"></div>
+        
+        <div class="relative z-10 text-center px-8 max-w-5xl mx-auto">
+            <div class="mb-6 inline-block">
+                <span class="px-4 py-2 rounded-full glass-effect text-orange-400 text-sm font-semibold tracking-wider border border-orange-500/30">
+                    ESPECIALISTAS EN AUTOMATIZACIÓN INDUSTRIAL
+                </span>
+            </div>
+            <h1 class="text-6xl md:text-8xl font-bold mb-6 leading-tight">
+                <span class="bg-clip-text text-transparent bg-gradient-to-r from-white via-orange-200 to-orange-400">
+                    VEF
+                </span>
+                <br>
+                <span class="text-4xl md:text-6xl font-light text-slate-300">Automatización</span>
+            </h1>
+            <div class="flex justify-center gap-8 mb-12 text-lg md:text-xl font-light tracking-widest text-slate-400">
+                <span>VALOR</span>
+                <span class="text-orange-500">·</span>
+                <span>EFICIENCIA</span>
+                <span class="text-orange-500">·</span>
+                <span>FUTURO</span>
+            </div>
+            <p class="text-xl md:text-2xl text-slate-300 max-w-3xl mx-auto leading-relaxed mb-12">
+                Máquinas especiales y automatización industrial integral<br>
+                <span class="text-orange-400 font-semibold">De la idea a la producción, sin intermediarios</span>
+            </p>
+            <div class="flex justify-center gap-4">
+                <div class="px-6 py-3 rounded-lg glass-effect border border-white/10">
+                    <i class="fas fa-industry text-orange-400 mr-2"></i>
+                    <span class="font-semibold">Diseño & Fabricación</span>
+                </div>
+                <div class="px-6 py-3 rounded-lg glass-effect border border-white/10">
+                    <i class="fas fa-microchip text-orange-400 mr-2"></i>
+                    <span class="font-semibold">Programación PLC</span>
+                </div>
+                <div class="px-6 py-3 rounded-lg glass-effect border border-white/10">
+                    <i class="fas fa-cogs text-orange-400 mr-2"></i>
+                    <span class="font-semibold">Integración Total</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="absolute bottom-12 left-1/2 transform -translate-x-1/2 animate-bounce">
+            <i class="fas fa-chevron-down text-2xl text-orange-400"></i>
+        </div>
+    </div>
+
+    <!-- Slide 2: ¿Qué Hacemos? -->
+    <div class="slide gradient-bg flex-col justify-center items-center relative p-8 md:p-16">
+        <div class="max-w-7xl w-full">
+            <div class="mb-12">
+                <h2 class="text-5xl md:text-6xl font-bold mb-4">¿Qué <span class="text-orange-400">hacemos</span>?</h2>
+                <div class="w-24 h-1 accent-gradient rounded-full"></div>
+            </div>
+            
+            <div class="grid md:grid-cols-2 gap-12 items-center">
+                <div class="space-y-6">
+                    <p class="text-2xl text-slate-300 leading-relaxed">
+                        Diseñamos, fabricamos e integramos <span class="text-white font-semibold">máquinas especiales desde cero</span>: mecanizado CNC, diseño mecánico, diseño eléctrico, programación de PLCs y desarrollo de software industrial.
+                    </p>
+                    <div class="p-6 rounded-2xl glass-effect border-l-4 border-orange-500">
+                        <p class="text-xl font-semibold text-orange-400 mb-2">Un solo proveedor, responsabilidad total.</p>
+                        <p class="text-slate-400">Eliminamos las interfaces problemáticas entre múltiples proveedores.</p>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="tech-card p-6 rounded-xl glass-effect transition-all duration-300">
+                        <div class="w-12 h-12 rounded-lg accent-gradient flex items-center justify-center mb-4">
+                            <i class="fas fa-drafting-compass text-2xl"></i>
+                        </div>
+                        <h3 class="font-bold text-lg mb-2">Diseño Mecánico</h3>
+                        <p class="text-sm text-slate-400">3D CAD SolidWorks</p>
+                    </div>
+                    <div class="tech-card p-6 rounded-xl glass-effect transition-all duration-300">
+                        <div class="w-12 h-12 rounded-lg accent-gradient flex items-center justify-center mb-4">
+                            <i class="fas fa-bolt text-2xl"></i>
+                        </div>
+                        <h3 class="font-bold text-lg mb-2">Diseño Eléctrico</h3>
+                        <p class="text-sm text-slate-400">EPlan & Certificaciones</p>
+                    </div>
+                    <div class="tech-card p-6 rounded-xl glass-effect transition-all duration-300">
+                        <div class="w-12 h-12 rounded-lg accent-gradient flex items-center justify-center mb-4">
+                            <i class="fas fa-code text-2xl"></i>
+                        </div>
+                        <h3 class="font-bold text-lg mb-2">Programación PLC</h3>
+                        <p class="text-sm text-slate-400">IEC 61131-3</p>
+                    </div>
+                    <div class="tech-card p-6 rounded-xl glass-effect transition-all duration-300">
+                        <div class="w-12 h-12 rounded-lg accent-gradient flex items-center justify-center mb-4">
+                            <i class="fas fa-desktop text-2xl"></i>
+                        </div>
+                        <h3 class="font-bold text-lg mb-2">Software Industrial</h3>
+                        <p class="text-sm text-slate-400">SCADA/HMI & MES</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 3: Tecnologías Clave -->
+    <div class="slide gradient-bg flex-col justify-center items-center relative p-8 md:p-16">
+        <div class="max-w-7xl w-full">
+            <div class="text-center mb-12">
+                <h2 class="text-5xl md:text-6xl font-bold mb-4">Tecnologías <span class="text-orange-400">Clave</span></h2>
+                <div class="w-24 h-1 accent-gradient rounded-full mx-auto"></div>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-6">
+                <!-- Controladores -->
+                <div class="glass-effect rounded-2xl p-8 border border-white/10 hover:border-orange-500/50 transition-all duration-300 group">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
+                            <i class="fas fa-microchip text-2xl"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold">Controladores</h3>
+                    </div>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-blue-400"></i>
+                            <span>Siemens (TIA Portal)</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-red-400"></i>
+                            <span>Allen-Bradley (Studio 5000)</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-green-400"></i>
+                            <span>Mitsubishi (GX Works3)</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-orange-400"></i>
+                            <span>Bosch Rexroth (MTX CNC)</span>
+                        </li>
+                    </ul>
+                    <div class="mt-6 pt-6 border-t border-white/10">
+                        <img src="https://kimi-web-img.moonshot.cn/img/images.sw.cdn.siemens.com/edf9dc5f00682258e92f0659df61a2d84117d37e.jpg" class="w-full h-32 object-cover rounded-lg opacity-80" alt="PLC Siemens">
+                    </div>
+                </div>
+
+                <!-- Tecnología Bosch Rexroth -->
+                <div class="glass-effect rounded-2xl p-8 border border-white/10 hover:border-orange-500/50 transition-all duration-300 group">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-12 h-12 rounded-xl bg-slate-700 flex items-center justify-center">
+                            <i class="fas fa-cog text-2xl text-blue-400"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold">Bosch Rexroth</h3>
+                    </div>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-blue-400"></i>
+                            <span>IndraControl & ctrlX</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-blue-400"></i>
+                            <span>Servoaccionamientos IndraDrive</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-blue-400"></i>
+                            <span>Hidráulica proporcional</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-blue-400"></i>
+                            <span>Sistemas de transporte linear</span>
+                        </li>
+                    </ul>
+                    <div class="mt-6 pt-6 border-t border-white/10">
+                        <img src="https://kimi-web-img.moonshot.cn/img/dc-mkt-prod.cloud.bosch.tech/2900b5a344547df3ba96c5b905b939a050c0e03e.jpg" class="w-full h-32 object-cover rounded-lg opacity-80" alt="Bosch Rexroth">
+                    </div>
+                </div>
+
+                <!-- Diseño & Software -->
+                <div class="glass-effect rounded-2xl p-8 border border-white/10 hover:border-orange-500/50 transition-all duration-300 group">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-12 h-12 rounded-xl accent-gradient flex items-center justify-center">
+                            <i class="fas fa-laptop-code text-2xl"></i>
+                        </div>
+                        <h3 class="text-2xl font-bold">Diseño & Software</h3>
+                    </div>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-orange-400"></i>
+                            <span>Diseño mecánico 3D (SolidWorks)</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-orange-400"></i>
+                            <span>Diseño eléctrico (EPlan)</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-orange-400"></i>
+                            <span>SCADA/HMI & MES</span>
+                        </li>
+                        <li class="flex items-center gap-3 text-slate-300 group-hover:text-white transition-colors">
+                            <i class="fas fa-check-circle text-orange-400"></i>
+                            <span>OPC UA, MQTT</span>
+                        </li>
+                    </ul>
+                    <div class="mt-6 pt-6 border-t border-white/10">
+                        <img src="https://kimi-web-img.moonshot.cn/img/www.unicornglobalautomations.com/ebc6e4ee0dfe15ca858e019cd87c5ac7bf4d2717.webp" class="w-full h-32 object-cover rounded-lg opacity-80" alt="Control Panel">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 4: Nuestra Diferencia -->
+    <div class="slide gradient-bg flex-col justify-center items-center relative p-8 md:p-16">
+        <div class="max-w-6xl w-full">
+            <div class="text-center mb-12">
+                <h2 class="text-5xl md:text-6xl font-bold mb-4">Nuestra <span class="text-orange-400">Diferencia</span></h2>
+                <p class="text-2xl text-slate-300 italic">"De la idea a la producción, sin intermediarios"</p>
+                <div class="w-24 h-1 accent-gradient rounded-full mx-auto mt-4"></div>
+            </div>
+
+            <div class="glass-effect rounded-3xl overflow-hidden border border-white/10">
+                <div class="grid md:grid-cols-2 gap-0">
+                    <!-- Modelo Tradicional -->
+                    <div class="p-8 md:p-12 bg-slate-800/50 border-b md:border-b-0 md:border-r border-white/10">
+                        <div class="flex items-center gap-3 mb-8">
+                            <div class="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center">
+                                <i class="fas fa-times text-red-400"></i>
+                            </div>
+                            <h3 class="text-2xl font-bold text-slate-400">Modelo Tradicional</h3>
+                        </div>
+                        <ul class="space-y-6">
+                            <li class="flex items-start gap-4 comparison-row p-3 rounded-lg transition-all">
+                                <i class="fas fa-users text-red-400 mt-1"></i>
+                                <div>
+                                    <p class="font-semibold text-lg">4-5 proveedores por proyecto</p>
+                                    <p class="text-sm text-slate-400">Coordinación compleja y dilatada</p>
+                                </div>
+                            </li>
+                            <li class="flex items-start gap-4 comparison-row p-3 rounded-lg transition-all">
+                                <i class="fas fa-exclamation-triangle text-red-400 mt-1"></i>
+                                <div>
+                                    <p class="font-semibold text-lg">Interfaces problemáticas</p>
+                                    <p class="text-sm text-slate-400">Pérdida de información entre áreas</p>
+                                </div>
+                            </li>
+                            <li class="flex items-start gap-4 comparison-row p-3 rounded-lg transition-all">
+                                <i class="fas fa-file-alt text-red-400 mt-1"></i>
+                                <div>
+                                    <p class="font-semibold text-lg">Documentación dispersa</p>
+                                    <p class="text-sm text-slate-400">Múltiples formatos y versiones</p>
+                                </div>
+                            </li>
+                            <li class="flex items-start gap-4 comparison-row p-3 rounded-lg transition-all">
+                                <i class="fas fa-headset text-red-400 mt-1"></i>
+                                <div>
+                                    <p class="font-semibold text-lg">Soporte por áreas</p>
+                                    <p class="text-sm text-slate-400">Sin visión integral del sistema</p>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- Modelo VEF -->
+                    <div class="p-8 md:p-12 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl -mr-32 -mt-32"></div>
+                        <div class="flex items-center gap-3 mb-8 relative z-10">
+                            <div class="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center">
+                                <i class="fas fa-check text-orange-400"></i>
+                            </div>
+                            <h3 class="text-2xl font-bold text-orange-400">Modelo VEF</h3>
+                        </div>
+                        <ul class="space-y-6 relative z-10">
+                            <li class="flex items-start gap-4 comparison-row p-3 rounded-lg transition-all">
+                                <i class="fas fa-user-shield text-orange-400 mt-1"></i>
+                                <div>
+                                    <p class="font-semibold text-lg">1 responsable único</p>
+                                    <p class="text-sm text-slate-400">Gestión integral del proyecto</p>
+                                </div>
+                            </li>
+                            <li class="flex items-start gap-4 comparison-row p-3 rounded-lg transition-all">
+                                <i class="fas fa-project-diagram text-orange-400 mt-1"></i>
+                                <div>
+                                    <p class="font-semibold text-lg">Ingeniería concurrente integrada</p>
+                                    <p class="text-sm text-slate-400">Trabajo simultáneo optimizado</p>
+                                </div>
+                            </li>
+                            <li class="flex items-start gap-4 comparison-row p-3 rounded-lg transition-all">
+                                <i class="fas fa-book text-orange-400 mt-1"></i>
+                                <div>
+                                    <p class="font-semibold text-lg">Entrega técnica completa y unificada</p>
+                                    <p class="text-sm text-slate-400">Documentación estandarizada</p>
+                                </div>
+                            </li>
+                            <li class="flex items-start gap-4 comparison-row p-3 rounded-lg transition-all">
+                                <i class="fas fa-user-tie text-orange-400 mt-1"></i>
+                                <div>
+                                    <p class="font-semibold text-lg">Ingeniero asignado</p>
+                                    <p class="text-sm text-slate-400">Conocimiento total del sistema</p>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 5: Entregables Garantizados -->
+    <div class="slide gradient-bg flex-col justify-center items-center relative p-8 md:p-16">
+        <div class="max-w-5xl w-full">
+            <div class="text-center mb-12">
+                <h2 class="text-5xl md:text-6xl font-bold mb-4">Entregables <span class="text-orange-400">Garantizados</span></h2>
+                <div class="w-24 h-1 accent-gradient rounded-full mx-auto"></div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-6" id="deliverablesList">
+                <div class="glass-effect p-6 rounded-xl border border-white/10 flex items-center gap-4 check-item" style="animation-delay: 0.1s">
+                    <div class="w-12 h-12 rounded-full accent-gradient flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-robot text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg">Máquina Especial Fabricada</h3>
+                        <p class="text-slate-400 text-sm">Validación FAT/SAT completa</p>
+                    </div>
+                    <i class="fas fa-check-circle text-green-400 text-2xl ml-auto"></i>
+                </div>
+
+                <div class="glass-effect p-6 rounded-xl border border-white/10 flex items-center gap-4 check-item" style="animation-delay: 0.2s">
+                    <div class="w-12 h-12 rounded-full accent-gradient flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-code text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg">Código PLC Documentado</h3>
+                        <p class="text-slate-400 text-sm">IEC 61131-3 con diagnósticos avanzados</p>
+                    </div>
+                    <i class="fas fa-check-circle text-green-400 text-2xl ml-auto"></i>
+                </div>
+
+                <div class="glass-effect p-6 rounded-xl border border-white/10 flex items-center gap-4 check-item" style="animation-delay: 0.3s">
+                    <div class="w-12 h-12 rounded-full accent-gradient flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-bolt text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg">Tableros Eléctricos Certificados</h3>
+                        <p class="text-slate-400 text-sm">Normativas NOM/IEC cumplidas</p>
+                    </div>
+                    <i class="fas fa-check-circle text-green-400 text-2xl ml-auto"></i>
+                </div>
+
+                <div class="glass-effect p-6 rounded-xl border border-white/10 flex items-center gap-4 check-item" style="animation-delay: 0.4s">
+                    <div class="w-12 h-12 rounded-full accent-gradient flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-desktop text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg">Software SCADA/MES</h3>
+                        <p class="text-slate-400 text-sm">Funcional y operativo</p>
+                    </div>
+                    <i class="fas fa-check-circle text-green-400 text-2xl ml-auto"></i>
+                </div>
+
+                <div class="glass-effect p-6 rounded-xl border border-white/10 flex items-center gap-4 check-item" style="animation-delay: 0.5s">
+                    <div class="w-12 h-12 rounded-full accent-gradient flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-book text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg">Manuales Técnicos Completos</h3>
+                        <p class="text-slate-400 text-sm">Operación y mantenimiento</p>
+                    </div>
+                    <i class="fas fa-check-circle text-green-400 text-2xl ml-auto"></i>
+                </div>
+
+                <div class="glass-effect p-6 rounded-xl border border-white/10 flex items-center gap-4 check-item" style="animation-delay: 0.6s">
+                    <div class="w-12 h-12 rounded-full accent-gradient flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-chalkboard-teacher text-xl"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg">Capacitación al Personal</h3>
+                        <p class="text-slate-400 text-sm">Transferencia de conocimiento</p>
+                    </div>
+                    <i class="fas fa-check-circle text-green-400 text-2xl ml-auto"></i>
+                </div>
+            </div>
+
+            <div class="mt-12 text-center">
+                <div class="inline-flex items-center gap-3 px-6 py-3 rounded-full glass-effect border border-orange-500/30">
+                    <div class="w-3 h-3 rounded-full bg-green-400 pulse-ring"></div>
+                    <span class="font-semibold text-orange-400">Garantía de satisfacción en cada entrega</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 6: Ventajas Competitivas -->
+    <div class="slide gradient-bg flex-col justify-center items-center relative p-8 md:p-16">
+        <div class="max-w-6xl w-full">
+            <div class="text-center mb-12">
+                <h2 class="text-5xl md:text-6xl font-bold mb-4">Ventajas <span class="text-orange-400">Competitivas</span></h2>
+                <div class="w-24 h-1 accent-gradient rounded-full mx-auto"></div>
+            </div>
+
+            <div class="grid md:grid-cols-4 gap-6">
+                <div class="glass-effect p-8 rounded-2xl border border-white/10 text-center group hover:border-orange-500/50 transition-all duration-300">
+                    <div class="w-16 h-16 rounded-full accent-gradient flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+                        <i class="fas fa-stopwatch text-3xl"></i>
+                    </div>
+                    <h3 class="text-xl font-bold mb-3">Tiempo de Respuesta</h3>
+                    <p class="text-slate-400 text-sm">Ingeniero dedicado, sin burocracia entre departamentos</p>
+                </div>
+
+                <div class="glass-effect p-8 rounded-2xl border border-white/10 text-center group hover:border-orange-500/50 transition-all duration-300">
+                    <div class="w-16 h-16 rounded-full accent-gradient flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+                        <i class="fas fa-shield-alt text-3xl"></i>
+                    </div>
+                    <h3 class="text-xl font-bold mb-3">Responsabilidad Única</h3>
+                    <p class="text-slate-400 text-sm">Un solo contrato, un solo responsable técnico y comercial</p>
+                </div>
+
+                <div class="glass-effect p-8 rounded-2xl border border-white/10 text-center group hover:border-orange-500/50 transition-all duration-300">
+                    <div class="w-16 h-16 rounded-full accent-gradient flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+                        <i class="fas fa-sync text-3xl"></i>
+                    </div>
+                    <h3 class="text-xl font-bold mb-3">Integración Total</h3>
+                    <p class="text-slate-400 text-sm">Mecánica, eléctrica y software diseñados en conjunto</p>
+                </div>
+
+                <div class="glass-effect p-8 rounded-2xl border border-white/10 text-center group hover:border-orange-500/50 transition-all duration-300">
+                    <div class="w-16 h-16 rounded-full accent-gradient flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform">
+                        <i class="fas fa-chart-line text-3xl"></i>
+                    </div>
+                    <h3 class="text-xl font-bold mb-3">Continuidad Productiva</h3>
+                    <p class="text-slate-400 text-sm">Arquitectos de sistemas robustos y escalables</p>
+                </div>
+            </div>
+
+            <div class="mt-12 glass-effect rounded-2xl p-8 border border-orange-500/30">
+                <div class="flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div class="flex items-center gap-4">
+                        <i class="fas fa-quote-left text-4xl text-orange-400 opacity-50"></i>
+                        <p class="text-2xl font-light italic">"Control preciso. Resultados medibles. Arquitectos de continuidad productiva."</p>
+                    </div>
+                    <div class="flex gap-4">
+                        <div class="text-center px-6 border-r border-white/10">
+                            <div class="text-3xl font-bold text-orange-400">100%</div>
+                            <div class="text-xs text-slate-400">Responsabilidad</div>
+                        </div>
+                        <div class="text-center px-6 border-r border-white/10">
+                            <div class="text-3xl font-bold text-orange-400">360°</div>
+                            <div class="text-xs text-slate-400">Integración</div>
+                        </div>
+                        <div class="text-center px-6">
+                            <div class="text-3xl font-bold text-orange-400">24/7</div>
+                            <div class="text-xs text-slate-400">Soporte</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 7: Contacto -->
+    <div class="slide gradient-bg flex-col justify-center items-center relative p-8 md:p-16">
+        <div class="max-w-5xl w-full">
+            <div class="text-center mb-12">
+                <h2 class="text-5xl md:text-6xl font-bold mb-4">Contacto <span class="text-orange-400">Ejecutivo</span></h2>
+                <div class="w-24 h-1 accent-gradient rounded-full mx-auto"></div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-12 items-center">
+                <div class="space-y-8">
+                    <div class="glass-effect p-6 rounded-xl border border-white/10 flex items-center gap-4 hover:border-orange-500/50 transition-all">
+                        <div class="w-14 h-14 rounded-full accent-gradient flex items-center justify-center">
+                            <i class="fas fa-building text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-400 mb-1">Razón Social</p>
+                            <p class="text-xl font-semibold">VEF Automatización S.A. de C.V.</p>
+                        </div>
+                    </div>
+
+                    <div class="glass-effect p-6 rounded-xl border border-white/10 flex items-center gap-4 hover:border-orange-500/50 transition-all">
+                        <div class="w-14 h-14 rounded-full accent-gradient flex items-center justify-center">
+                            <i class="fas fa-envelope text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-400 mb-1">Correo Electrónico</p>
+                            <p class="text-xl font-semibold">contacto@vef-automatizacion.com</p>
+                        </div>
+                    </div>
+
+                    <div class="glass-effect p-6 rounded-xl border border-white/10 flex items-center gap-4 hover:border-orange-500/50 transition-all">
+                        <div class="w-14 h-14 rounded-full accent-gradient flex items-center justify-center">
+                            <i class="fas fa-globe text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-400 mb-1">Sitio Web</p>
+                            <p class="text-xl font-semibold">www.vef-automatizacion.com</p>
+                        </div>
+                    </div>
+
+                    <div class="glass-effect p-6 rounded-xl border border-white/10 flex items-center gap-4 hover:border-orange-500/50 transition-all">
+                        <div class="w-14 h-14 rounded-full accent-gradient flex items-center justify-center">
+                            <i class="fas fa-phone text-2xl"></i>
+                        </div>
+                        <div>
+                            <p class="text-sm text-slate-400 mb-1">Teléfono Directo</p>
+                            <p class="text-xl font-semibold">[Disponible bajo solicitud]</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-effect rounded-3xl p-8 border border-orange-500/30 relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-64 h-64 bg-orange-500/20 rounded-full blur-3xl -mr-32 -mt-32"></div>
+                    <div class="relative z-10 text-center">
+                        <div class="w-24 h-24 rounded-2xl accent-gradient flex items-center justify-center mx-auto mb-6 text-4xl font-bold">
+                            VEF
+                        </div>
+                        <h3 class="text-3xl font-bold mb-4">¿Listo para automatizar?</h3>
+                        <p class="text-slate-300 mb-8">Conversemos sobre su proyecto. Análisis inicial sin compromiso.</p>
+                        <button class="w-full py-4 rounded-xl accent-gradient font-bold text-lg hover:shadow-lg hover:shadow-orange-500/30 transition-all transform hover:scale-105">
+                            Solicitar Propuesta Técnica
+                        </button>
+                        <div class="mt-6 flex justify-center gap-4">
+                            <div class="w-10 h-10 rounded-full glass-effect flex items-center justify-center hover:bg-orange-500 transition-colors cursor-pointer">
+                                <i class="fab fa-linkedin-in"></i>
+                            </div>
+                            <div class="w-10 h-10 rounded-full glass-effect flex items-center justify-center hover:bg-orange-500 transition-colors cursor-pointer">
+                                <i class="fab fa-whatsapp"></i>
+                            </div>
+                            <div class="w-10 h-10 rounded-full glass-effect flex items-center justify-center hover:bg-orange-500 transition-colors cursor-pointer">
+                                <i class="fas fa-envelope"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 8: Cierre -->
+    <div class="slide gradient-bg flex-col justify-center items-center relative overflow-hidden">
+        <div class="absolute inset-0">
+            <img src="https://kimi-web-img.moonshot.cn/img/thinaer.io/30b17e35027fc62540d230b3ba8589366ca9bd33.jpg" class="w-full h-full object-cover opacity-30" alt="Smart Factory">
+        </div>
+        <div class="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/80 to-slate-900/60"></div>
+        
+        <div class="relative z-10 text-center px-8 max-w-4xl mx-auto">
+            <div class="mb-8">
+                <div class="w-20 h-20 rounded-2xl accent-gradient flex items-center justify-center mx-auto mb-6 text-3xl font-bold shadow-2xl shadow-orange-500/50">
+                    VEF
+                </div>
+            </div>
+            <h2 class="text-5xl md:text-7xl font-bold mb-6">
+                <span class="bg-clip-text text-transparent bg-gradient-to-r from-white to-orange-400">
+                    Valor · Eficiencia · Futuro
+                </span>
+            </h2>
+            <p class="text-2xl md:text-3xl text-slate-300 font-light mb-12 leading-relaxed">
+                "Control preciso. Resultados medibles.<br>
+                <span class="text-orange-400 font-semibold">Arquitectos de continuidad productiva.</span>"
+            </p>
+            <div class="flex flex-col md:flex-row justify-center gap-6 text-lg">
+                <div class="flex items-center gap-2 text-slate-400">
+                    <i class="fas fa-check-circle text-orange-400"></i>
+                    <span>Diseño Integral</span>
+                </div>
+                <div class="flex items-center gap-2 text-slate-400">
+                    <i class="fas fa-check-circle text-orange-400"></i>
+                    <span>Ejecución Total</span>
+                </div>
+                <div class="flex items-center gap-2 text-slate-400">
+                    <i class="fas fa-check-circle text-orange-400"></i>
+                    <span>Responsabilidad Única</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="absolute bottom-8 left-0 right-0 text-center text-slate-500 text-sm">
+            © 2026 VEF Automatización S.A. de C.V. · Todos los derechos reservados
+        </div>
+    </div>
+
+    <script>
+        let currentSlide = 0;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+        
+        function updateProgress() {
+            const progress = ((currentSlide + 1) / totalSlides) * 100;
+            document.getElementById('progressBar').style.width = progress + '%';
+            document.getElementById('currentSlide').textContent = currentSlide + 1;
+            document.getElementById('totalSlides').textContent = totalSlides;
+        }
+
+        function showSlide(index) {
+            slides.forEach((slide, i) => {
+                slide.classList.remove('active', 'prev');
+                if (i === index) {
+                    slide.classList.add('active');
+                } else if (i < index) {
+                    slide.classList.add('prev');
+                }
+            });
+            currentSlide = index;
+            updateProgress();
+            
+            // Re-trigger animations for deliverables
+            if (index === 4) {
+                const items = document.querySelectorAll('.check-item');
+                items.forEach(item => {
+                    item.style.animation = 'none';
+                    setTimeout(() => {
+                        item.style.animation = '';
+                    }, 10);
+                });
+            }
+        }
+
+        function nextSlide() {
+            if (currentSlide < totalSlides - 1) {
+                showSlide(currentSlide + 1);
+            }
+        }
+
+        function prevSlide() {
+            if (currentSlide > 0) {
+                showSlide(currentSlide - 1);
+            }
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === ' ') {
+                nextSlide();
+            } else if (e.key === 'ArrowLeft') {
+                prevSlide();
+            }
+        });
+
+        // Touch support
+        let touchStartX = 0;
+        let touchEndX = 0;
+
+        document.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+        });
+
+        document.addEventListener('touchend', (e) => {
+            touchEndX = e.changedTouches[0].screenX;
+            handleSwipe();
+        });
+
+        function handleSwipe() {
+            if (touchEndX < touchStartX - 50) nextSlide();
+            if (touchEndX > touchStartX + 50) prevSlide();
+        }
+
+        // Initialize
+        updateProgress();
+    </script>
+</body>
+</html>
