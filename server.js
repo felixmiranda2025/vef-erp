@@ -439,7 +439,29 @@ async function buildPDFOrden(oc, items, schema=null) {
     pdfGrid(doc,[['Cond. Pago:', oc.condiciones_pago||'—','Lugar de Entrega:',oc.lugar_entrega||'—']]);
     pdfSec(doc,'Partidas / Materiales');
     pdfItems(doc, items, oc.moneda||'USD');
-    pdfTotal(doc,'TOTAL ORDEN', oc.total, oc.moneda||'USD');
+    // Subtotal + IVA + Total
+    const M2=28, W2=539, mon2=oc.moneda||'USD', SYM2=mon2==='USD'?'$':'MX$';
+    const sub2=parseFloat(oc.subtotal)||items.reduce((s,it)=>s+(parseFloat(it.cantidad)||0)*(parseFloat(it.precio_unitario)||0),0);
+    const iva2=parseFloat(oc.iva)||0;
+    const tot2=parseFloat(oc.total)||(sub2+iva2);
+    if(iva2>0){
+      // Subtotal row
+      let ry=doc.y;
+      doc.rect(M2,ry,W2,22).fill(C.GRIS);
+      doc.fillColor(C.TEXTO).fontSize(9).font('Helvetica')
+         .text('Subtotal:',M2+10,ry+6,{width:W2-100,align:'right'});
+      doc.font('Helvetica-Bold')
+         .text(SYM2+sub2.toLocaleString('es-MX',{minimumFractionDigits:2})+' '+mon2,M2+10,ry+6,{width:W2-14,align:'right'});
+      ry+=22;
+      // IVA row
+      doc.rect(M2,ry,W2,22).fill(C.GRIS);
+      doc.fillColor(C.AZUL).fontSize(9).font('Helvetica-Bold')
+         .text('IVA (16%):',M2+10,ry+6,{width:W2-100,align:'right'});
+      doc.fillColor(C.TEXTO)
+         .text(SYM2+iva2.toLocaleString('es-MX',{minimumFractionDigits:2})+' '+mon2,M2+10,ry+6,{width:W2-14,align:'right'});
+      doc.y=ry+22;
+    }
+    pdfTotal(doc,'TOTAL ORDEN', tot2, mon2);
     if (oc.notas) { pdfSec(doc,'Notas'); doc.fillColor(C.TEXTO).fontSize(9).font('Helvetica').text(oc.notas,28,doc.y,{width:539}); doc.moveDown(0.5); }
     // Firmas
     doc.moveDown(1.2);
@@ -655,7 +677,7 @@ app.get('/api/fix', async (req,res)=>{
         `CREATE TABLE IF NOT EXISTS seguimientos (id SERIAL PRIMARY KEY,cotizacion_id INTEGER,fecha TIMESTAMP DEFAULT NOW(),tipo TEXT,notas TEXT,proxima_accion TEXT)`,
         `CREATE TABLE IF NOT EXISTS facturas (id SERIAL PRIMARY KEY,cotizacion_id INTEGER,numero_factura TEXT,cliente_id INTEGER,moneda TEXT DEFAULT 'USD',subtotal NUMERIC(15,2) DEFAULT 0,iva NUMERIC(15,2) DEFAULT 0,total NUMERIC(15,2) DEFAULT 0,monto NUMERIC(15,2) DEFAULT 0,fecha_emision DATE DEFAULT CURRENT_DATE,fecha_vencimiento DATE,estatus TEXT DEFAULT 'pendiente',estatus_pago TEXT DEFAULT 'pendiente',notas TEXT,created_at TIMESTAMP DEFAULT NOW())`,
         `CREATE TABLE IF NOT EXISTS pagos (id SERIAL PRIMARY KEY,factura_id INTEGER,fecha DATE DEFAULT CURRENT_DATE,monto NUMERIC(15,2),metodo TEXT,referencia TEXT,notas TEXT,created_at TIMESTAMP DEFAULT NOW())`,
-        `CREATE TABLE IF NOT EXISTS ordenes_proveedor (id SERIAL PRIMARY KEY,proveedor_id INTEGER,numero_op TEXT UNIQUE,fecha_emision DATE DEFAULT CURRENT_DATE,fecha_entrega DATE,condiciones_pago TEXT,lugar_entrega TEXT,notas TEXT,total NUMERIC(15,2) DEFAULT 0,moneda TEXT DEFAULT 'USD',estatus TEXT DEFAULT 'borrador',cotizacion_ref_pdf TEXT,factura_pdf BYTEA,factura_nombre TEXT,factura_fecha TIMESTAMP,cotizacion_pdf BYTEA,cotizacion_nombre TEXT,created_by INTEGER,created_at TIMESTAMP DEFAULT NOW())`,
+        `CREATE TABLE IF NOT EXISTS ordenes_proveedor (id SERIAL PRIMARY KEY,proveedor_id INTEGER,numero_op TEXT UNIQUE,fecha_emision DATE DEFAULT CURRENT_DATE,fecha_entrega DATE,condiciones_pago TEXT,lugar_entrega TEXT,notas TEXT,subtotal NUMERIC(15,2) DEFAULT 0,iva NUMERIC(15,2) DEFAULT 0,total NUMERIC(15,2) DEFAULT 0,moneda TEXT DEFAULT 'USD',estatus TEXT DEFAULT 'borrador',cotizacion_ref_pdf TEXT,factura_pdf BYTEA,factura_nombre TEXT,factura_fecha TIMESTAMP,cotizacion_pdf BYTEA,cotizacion_nombre TEXT,created_by INTEGER,created_at TIMESTAMP DEFAULT NOW())`,
         `CREATE TABLE IF NOT EXISTS items_orden_proveedor (id SERIAL PRIMARY KEY,orden_id INTEGER,descripcion TEXT,cantidad NUMERIC(10,2),precio_unitario NUMERIC(15,2),total NUMERIC(15,2))`,
         `CREATE TABLE IF NOT EXISTS seguimientos_oc (id SERIAL PRIMARY KEY,orden_id INTEGER,fecha TIMESTAMP DEFAULT NOW(),tipo TEXT,notas TEXT,proxima_accion TEXT)`,
         `CREATE TABLE IF NOT EXISTS inventario (id SERIAL PRIMARY KEY,codigo TEXT,nombre TEXT NOT NULL,descripcion TEXT,categoria TEXT,unidad TEXT DEFAULT 'pza',cantidad_actual NUMERIC(10,2) DEFAULT 0,cantidad_minima NUMERIC(10,2) DEFAULT 0,stock_actual NUMERIC(10,2) DEFAULT 0,stock_minimo NUMERIC(10,2) DEFAULT 0,precio_costo NUMERIC(15,2) DEFAULT 0,precio_venta NUMERIC(15,2) DEFAULT 0,ubicacion TEXT,proveedor_id INTEGER,foto TEXT,fecha_ultima_entrada DATE,notas TEXT,activo BOOLEAN DEFAULT true,created_at TIMESTAMP DEFAULT NOW())`,
@@ -949,6 +971,8 @@ async function autoSetup() {
         "ALTER TABLE facturas ADD COLUMN IF NOT EXISTS monto NUMERIC(15,2) DEFAULT 0",
         "ALTER TABLE facturas ADD COLUMN IF NOT EXISTS fecha_vencimiento DATE",
         "ALTER TABLE facturas ADD COLUMN IF NOT EXISTS estatus_pago TEXT DEFAULT 'pendiente'",
+        "ALTER TABLE ordenes_proveedor ADD COLUMN IF NOT EXISTS subtotal NUMERIC(15,2) DEFAULT 0",
+        "ALTER TABLE ordenes_proveedor ADD COLUMN IF NOT EXISTS iva NUMERIC(15,2) DEFAULT 0",
         "ALTER TABLE ordenes_proveedor ADD COLUMN IF NOT EXISTS factura_pdf BYTEA",
         "ALTER TABLE ordenes_proveedor ADD COLUMN IF NOT EXISTS factura_nombre TEXT",
         "ALTER TABLE ordenes_proveedor ADD COLUMN IF NOT EXISTS factura_fecha TIMESTAMP",
@@ -2213,15 +2237,17 @@ app.post('/api/ordenes-proveedor', auth, async (req,res)=>{
     const schema=req.user?.schema||global._defaultSchema||'emp_vef';
     await client.query(`SET search_path TO ${schema},public`);
     await client.query('BEGIN');
-    const {proveedor_id,moneda,items=[],condiciones_pago,fecha_entrega,lugar_entrega,notas,folio}=req.body;
+    const {proveedor_id,moneda,items=[],condiciones_pago,fecha_entrega,lugar_entrega,notas,folio,iva:ivaBody,subtotal:subBody}=req.body;
     const yr=new Date().getFullYear();
     const cnt=(await client.query("SELECT COUNT(*) FROM ordenes_proveedor WHERE fecha_emision::text LIKE $1",[`${yr}%`])).rows[0].count;
     const num=folio||`OP-${yr}-${String(parseInt(cnt)+1).padStart(3,'0')}`;
-    const total=items.reduce((s,it)=>s+(parseFloat(it.cantidad)||0)*(parseFloat(it.precio_unitario)||0),0);
+    const subtotal=parseFloat(subBody)||items.reduce((s,it)=>s+(parseFloat(it.cantidad)||0)*(parseFloat(it.precio_unitario)||0),0);
+    const iva=parseFloat(ivaBody)||0;
+    const total=subtotal+iva;
     const {rows:[op]}=await client.query(
-      `INSERT INTO ordenes_proveedor (proveedor_id,numero_op,moneda,total,condiciones_pago,fecha_entrega,lugar_entrega,notas,estatus)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'borrador') RETURNING *`,
-      [proveedor_id,num,moneda||'USD',total,condiciones_pago,fecha_entrega||null,lugar_entrega,notas]);
+      `INSERT INTO ordenes_proveedor (proveedor_id,numero_op,moneda,subtotal,iva,total,condiciones_pago,fecha_entrega,lugar_entrega,notas,estatus)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'borrador') RETURNING *`,
+      [proveedor_id,num,moneda||'USD',subtotal,iva,total,condiciones_pago,fecha_entrega||null,lugar_entrega,notas]);
     for(const it of items) await client.query(
       'INSERT INTO items_orden_proveedor (orden_id,descripcion,cantidad,precio_unitario,total) VALUES ($1,$2,$3,$4,$5)',
       [op.id,it.descripcion,it.cantidad,it.precio_unitario,(parseFloat(it.cantidad)||0)*(parseFloat(it.precio_unitario)||0)]);
@@ -2237,7 +2263,8 @@ app.put('/api/ordenes-proveedor/:id', auth, async (req,res)=>{
     const schema=req.user?.schema||global._defaultSchema||'emp_vef';
     await client.query(`SET search_path TO ${schema},public`);
     await client.query('BEGIN');
-    const {estatus,notas,proveedor_id,moneda,fecha_entrega,lugar_entrega,condiciones_pago,total,items}=req.body;
+    const {estatus,notas,proveedor_id,moneda,fecha_entrega,lugar_entrega,condiciones_pago,total,items,
+           iva:ivaUpd,subtotal:subUpd}=req.body;
     // Build dynamic UPDATE
     const sets=[];const vals=[];let i=1;
     const add=(k,v)=>{if(v!==undefined){sets.push(`${k}=$${i++}`);vals.push(v);}};
@@ -2245,7 +2272,9 @@ app.put('/api/ordenes-proveedor/:id', auth, async (req,res)=>{
     add('proveedor_id',proveedor_id?parseInt(proveedor_id):undefined);
     add('moneda',moneda);add('fecha_entrega',fecha_entrega||null);
     add('lugar_entrega',lugar_entrega);add('condiciones_pago',condiciones_pago);
-    if(total!==undefined) add('total',total);
+    if(ivaUpd!==undefined) add('iva',parseFloat(ivaUpd)||0);
+    if(subUpd!==undefined) add('subtotal',parseFloat(subUpd)||0);
+    if(total!==undefined) add('total',parseFloat(total)||0);
     if(sets.length){ vals.push(req.params.id); await client.query(`UPDATE ordenes_proveedor SET ${sets.join(',')} WHERE id=$${i}`,vals); }
     // Update items if provided
     if(items){
@@ -2255,7 +2284,10 @@ app.put('/api/ordenes-proveedor/:id', auth, async (req,res)=>{
         await client.query('INSERT INTO items_orden_proveedor (orden_id,descripcion,cantidad,precio_unitario,total) VALUES ($1,$2,$3,$4,$5)',
           [req.params.id,it.descripcion,it.cantidad,it.precio_unitario,tot]);
       }
-      const newTotal=items.reduce((s,it)=>s+(parseFloat(it.cantidad)||0)*(parseFloat(it.precio_unitario)||0),0);
+      const newSub=items.reduce((s,it)=>s+(parseFloat(it.cantidad)||0)*(parseFloat(it.precio_unitario)||0),0);
+      const newIva=parseFloat(ivaUpd||req.body.iva)||0;
+      const newTotal=newSub+newIva;
+      await client.query('UPDATE ordenes_proveedor SET subtotal=$1 WHERE id=$2',[newSub,req.params.id]);
       await client.query('UPDATE ordenes_proveedor SET total=$1 WHERE id=$2',[newTotal,req.params.id]);
     }
     await client.query('COMMIT');
