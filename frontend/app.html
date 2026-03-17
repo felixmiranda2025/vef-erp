@@ -2741,17 +2741,24 @@ async function usuarios(){
       '</div>'+
     '</div></div>');
 }
-function usrForm(){
+async function usrForm(){
+  // Cargar empresas disponibles para el selector
+  const empresas = await api('/api/empresas-lista').catch(()=>[]);
+  const empOpts = empresas.length>1
+    ? empresas.map(e=>`<option value="${e.id}" ${e.id==USER?.empresa_id?'selected':''}>${esc(e.nombre)}</option>`).join('')
+    : '';
+  const showEmp = empresas.length > 1;
   openModal('Nuevo Usuario',`
     <div class="form-grid form-grid-2">
-      <div class="field-group"><label class="field-required">Username</label><input id="uu"></div>
-      <div class="field-group"><label class="field-required">Contraseña</label><input id="up" type="password"></div>
-      <div class="field-group"><label>Nombre</label><input id="un"></div>
+      <div class="field-group"><label class="field-required">Username / Email</label><input id="uu" placeholder="usuario@empresa.com"></div>
+      <div class="field-group"><label class="field-required">Contraseña</label><input id="up" type="password" placeholder="Mínimo 6 caracteres"></div>
+      <div class="field-group"><label>Nombre completo</label><input id="un"></div>
       <div class="field-group"><label>Email</label><input id="ue" type="email"></div>
       <div class="field-group"><label>Rol</label><select id="ur">
         <option value="usuario">Usuario</option><option value="ventas">Ventas</option>
         <option value="compras">Compras</option><option value="almacen">Almacén</option><option value="admin">Admin</option>
       </select></div>
+      ${showEmp?`<div class="field-group"><label>Empresa</label><select id="uemp"><option value="">— Mi empresa —</option>${empOpts}</select></div>`:''}
     </div>`,
   `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
    <button class="btn btn-primary" onclick="usrSave()">💾 Crear</button>`);
@@ -2787,9 +2794,17 @@ async function usrResetSave(id){
   try{await api('/api/usuarios/'+id+'/reset-password','POST',{password:p});toast('Contraseña cambiada ✓');closeModal();}catch(e){toast(e.message,'err');}
 }
 async function usrSave(){
-  const b={username:ge('uu').value.trim(),password:ge('up').value,nombre:ge('un').value.trim(),email:ge('ue').value.trim(),rol:ge('ur').value};
+  const empEl=ge('uemp');
+  const b={
+    username: ge('uu').value.trim(),
+    password: ge('up').value,
+    nombre:   ge('un').value.trim(),
+    email:    ge('ue').value.trim(),
+    rol:      ge('ur').value,
+    empresa_id: empEl ? (parseInt(empEl.value)||null) : null
+  };
   if(!b.username||!b.password){toast('Username y contraseña requeridos','err');return;}
-  try{await api('/api/usuarios','POST',b);toast('Usuario creado ✓');closeModal();usuarios();}catch(e){toast(e.message,'err');}
+  try{await api('/api/usuarios','POST',b);toast('✅ Usuario creado');closeModal();usuarios();}catch(e){toast(e.message,'err');}
 }
 
 
@@ -2979,8 +2994,8 @@ async function configuracion(){
       <div class="card-body">
         <div class="form-grid form-grid-2" style="gap:14px">
           <div class="field-group" style="grid-column:1/-1">
-            <div style="background:#fff4e6;border-left:3px solid #e67e22;padding:10px 14px;border-radius:4px;font-size:.84rem;margin-bottom:4px">
-              ⚠️ Los cambios aquí son solo visuales — para que el servidor use nuevos datos SMTP edita el archivo <code>.env</code> y reinicia.
+            <div style="background:#f0fdf4;border-left:3px solid #059669;padding:10px 14px;border-radius:4px;font-size:.84rem;margin-bottom:4px">
+              ✅ Los datos SMTP se guardan en la base de datos y se usan directamente al enviar correos. No se requiere editar el <code>.env</code>.
             </div>
           </div>
           <div class="field-group">
@@ -2997,7 +3012,8 @@ async function configuracion(){
           </div>
           <div class="field-group" style="grid-column:1/-1">
             <label>Contraseña SMTP</label>
-            <input id="emp_smtp_pass" type="password" placeholder="Dejar vacío para no cambiar">
+            <input id="emp_smtp_pass" type="password" placeholder="Dejar vacío para mantener la actual">
+            <small style="color:#64748b;font-size:.75rem">La contraseña se guarda encriptada en la BD y no se muestra por seguridad</small>
           </div>
         </div>
         <div style="margin-top:16px;border-top:1px solid #eee;padding-top:16px">
@@ -3005,7 +3021,7 @@ async function configuracion(){
           <div style="display:flex;gap:10px;margin-top:10px;align-items:center;flex-wrap:wrap">
             <input id="testEmail" type="email" placeholder="destinatario@correo.com"
               value="${esc(smtpUser)}" style="flex:1;min-width:200px">
-            <button class="btn btn-primary" onclick="testCorreo()">📧 Enviar Prueba</button>
+            <button class="btn btn-primary" onclick="testCorreoYGuardar()">📧 Guardar y Enviar Prueba</button>
           </div>
           <div id="emailMsg" style="margin-top:10px;font-size:.85rem"></div>
         </div>
@@ -3143,6 +3159,33 @@ async function logoUpload(){
     }catch(err){ msg.innerHTML = '<span style="color:var(--rojo)">❌ '+esc(err.message)+'</span>'; }
   };
   reader.readAsDataURL(file);
+}
+
+async function testCorreoYGuardar(){
+  // Primero guardar la configuración, luego probar
+  const msg = document.getElementById('emailMsg');
+  msg.innerHTML = '⏳ Guardando configuración...';
+  try{
+    // Guardar config SMTP primero
+    const g = id => document.getElementById(id)?.value?.trim()||'';
+    const smtpBody = {
+      smtp_host: g('emp_smtp_host'),
+      smtp_port: parseInt(g('emp_smtp_port'))||465,
+      smtp_user: g('emp_smtp_user'),
+      smtp_pass: g('emp_smtp_pass'),
+      nombre:    g('emp_nom')||'Mi Empresa',
+    };
+    await api('/api/empresa','PUT',smtpBody);
+    msg.innerHTML = '⏳ Configuración guardada. Enviando correo de prueba...';
+    const to = document.getElementById('testEmail')?.value?.trim();
+    if(!to){ msg.innerHTML='<span style="color:var(--rojo)">❌ Ingresa un correo destino</span>'; return; }
+    await api('/api/email/test','POST',{to});
+    msg.innerHTML = '<span style="color:var(--verde,#059669)">✅ ¡Correo enviado correctamente a '+esc(to)+'!</span>';
+    toast('✅ Correo de prueba enviado');
+  }catch(e){ 
+    msg.innerHTML = '<span style="color:var(--rojo,#dc2626)">❌ Error: '+esc(e.message)+'</span>';
+    toast(e.message,'err');
+  }
 }
 
 async function testCorreo(){

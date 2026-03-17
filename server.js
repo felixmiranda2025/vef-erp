@@ -3593,31 +3593,40 @@ app.post('/api/email/test', auth, async (req,res)=>{
   const { to } = req.body;
   if (!to) return res.status(400).json({ error: 'to requerido' });
   try {
-    const dynMailerTest = await getMailer(req.user?.schema);
-    const fromEmailTest = await getFromEmail(req.user?.schema);
-    const empTest = (await Q('SELECT nombre FROM empresa_config LIMIT 1',[],req.user?.schema))[0]||{};
-    const nomTest = empTest.nombre||VEF_NOMBRE;
+    const schema = req.user?.schema || req.user?.schema_name || global._defaultSchema;
+    const dynMailerTest = await getMailer(schema);
+    const fromEmailTest = await getFromEmail(schema);
+    const empTest = (await Q('SELECT nombre,telefono,email,smtp_host,smtp_port,smtp_user FROM empresa_config LIMIT 1',[],schema))[0]||{};
+    const nomTest = empTest.nombre || VEF_NOMBRE;
+    // Verificar que hay configuración SMTP
+    if(!empTest.smtp_host && !process.env.SMTP_HOST){
+      return res.status(400).json({error:'No hay servidor SMTP configurado. Ve a Configuración → Correo y guarda los datos SMTP.'});
+    }
+    if(!empTest.smtp_user && !process.env.SMTP_USER){
+      return res.status(400).json({error:'No hay usuario SMTP configurado. Ve a Configuración → Correo y guarda los datos.'});
+    }
     await dynMailerTest.sendMail({
       from: `"${nomTest}" <${fromEmailTest}>`,
       to,
       subject: `✅ Prueba de correo — ${nomTest}`,
       html: `<div style="font-family:Arial,sans-serif;max-width:500px">
         <div style="background:#0D2B55;padding:16px;text-align:center">
-          <h2 style="color:#fff;margin:0">${VEF_NOMBRE}</h2>
+          <h2 style="color:#fff;margin:0">${nomTest}</h2>
           <p style="color:#A8C5F0;margin:4px 0">Prueba de configuración SMTP</p>
         </div>
         <div style="padding:20px">
           <p>✅ El correo está correctamente configurado.</p>
-          <p><b>Servidor:</b> smtp.zoho.com · Puerto 465 (SSL)<br>
-          <b>Cuenta:</b> ${process.env.SMTP_USER}<br>
+          <p><b>Servidor:</b> ${empTest.smtp_host||process.env.SMTP_HOST} · Puerto ${empTest.smtp_port||process.env.SMTP_PORT||465}<br>
+          <b>Cuenta:</b> ${empTest.smtp_user||process.env.SMTP_USER}<br>
+          <b>Enviado a:</b> ${to}<br>
           <b>Fecha:</b> ${new Date().toLocaleString('es-MX')}</p>
         </div>
         <div style="background:#0D2B55;padding:10px;text-align:center;color:#A8C5F0;font-size:12px">
-          ${VEF_NOMBRE} · ${VEF_TELEFONO} · ${VEF_CORREO}
+          ${nomTest} · ${empTest.telefono||VEF_TELEFONO} · ${empTest.email||fromEmailTest}
         </div>
       </div>`
     });
-    res.json({ ok: true, msg: `Correo enviado a ${to}` });
+    res.json({ ok: true, msg: `Correo enviado a ${to} desde ${fromEmailTest}` });
   } catch(e) {
     console.error('Email test error:', e.message);
     res.status(500).json({ error: e.message });
