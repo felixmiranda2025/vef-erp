@@ -177,6 +177,7 @@ function adminOnly(req, res, next) {
 }
 
 // ── EMAIL ────────────────────────────────────────────────────────
+// Mailer estático del .env (fallback)
 const mailer = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.zoho.com',
   port: parseInt(process.env.SMTP_PORT || '465'),
@@ -184,6 +185,35 @@ const mailer = nodemailer.createTransport({
   auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
   tls: { rejectUnauthorized: false, ciphers: 'SSLv3' }
 });
+
+// Obtener transporter dinámico desde empresa_config del schema del usuario
+async function getMailer(schema) {
+  try {
+    const sch = schema || global._defaultSchema || 'emp_vef';
+    const rows = await Q('SELECT smtp_host,smtp_port,smtp_user,smtp_pass,email FROM empresa_config LIMIT 1', [], sch);
+    const cfg = rows[0];
+    if(cfg?.smtp_host && cfg?.smtp_user && cfg?.smtp_pass) {
+      const port = parseInt(cfg.smtp_port)||465;
+      return nodemailer.createTransport({
+        host: cfg.smtp_host,
+        port,
+        secure: port === 465,
+        auth: { user: cfg.smtp_user, pass: cfg.smtp_pass },
+        tls: { rejectUnauthorized: false }
+      });
+    }
+  } catch(e) { console.warn('getMailer fallback:', e.message); }
+  return mailer; // fallback al mailer del .env
+}
+
+async function getFromEmail(schema) {
+  try {
+    const sch = schema || global._defaultSchema || 'emp_vef';
+    const rows = await Q('SELECT smtp_user,email,nombre FROM empresa_config LIMIT 1', [], sch);
+    const cfg = rows[0];
+    return cfg?.smtp_user || cfg?.email || process.env.SMTP_USER || 'noreply@erp.local';
+  } catch(e) { return process.env.SMTP_USER || 'noreply@erp.local'; }
+}
 
 // ================================================================
 // PDF — con logo VEF si existe logo.png en la carpeta del proyecto
@@ -2205,15 +2235,19 @@ app.post('/api/cotizaciones/:id/email', auth, async (req,res)=>{
     const items=await QR(req,'SELECT * FROM items_cotizacion WHERE cotizacion_id=$1 ORDER BY id',[req.params.id]);
     const buf=await buildPDFCotizacion(cot,items,req.user?.schema);
     const sym=(cot.moneda||'USD')==='USD'?'$':'MX$';
-    await mailer.sendMail({
-      from:`"${VEF_NOMBRE}" <${process.env.SMTP_USER}>`,
+    const dynMailer = await getMailer(req.user?.schema);
+    const fromEmail = await getFromEmail(req.user?.schema);
+    const empCfg = (await Q('SELECT nombre,telefono,email FROM empresa_config LIMIT 1',[],req.user?.schema))[0]||{};
+    const nomEmp = empCfg.nombre||VEF_NOMBRE;
+    await dynMailer.sendMail({
+      from:`"${nomEmp}" <${fromEmail}>`,
       to,cc:cc||undefined,
-      subject:asunto||`Cotización ${cot.numero_cotizacion} — ${VEF_NOMBRE}`,
+      subject:asunto||`Cotización ${cot.numero_cotizacion} — ${nomEmp}`,
       html:`<div style="font-family:Arial,sans-serif;max-width:600px">
-        <div style="background:#0D2B55;padding:18px;text-align:center"><h2 style="color:#fff;margin:0">${VEF_NOMBRE}</h2><p style="color:#A8C5F0;margin:4px 0">${VEF_TELEFONO}</p></div>
+        <div style="background:#0D2B55;padding:18px;text-align:center"><h2 style="color:#fff;margin:0">${nomEmp}</h2><p style="color:#A8C5F0;margin:4px 0">${empCfg.telefono||''}</p></div>
         <div style="padding:20px"><p>${mensaje||'Estimado cliente, adjuntamos la cotización solicitada.'}</p>
         <p><b>Cotización:</b> ${cot.numero_cotizacion}<br><b>Total:</b> ${sym}${parseFloat(cot.total||0).toLocaleString('es-MX',{minimumFractionDigits:2})} ${cot.moneda||'USD'}</p></div>
-        <div style="background:#0D2B55;padding:10px;text-align:center;color:#A8C5F0;font-size:12px">${VEF_NOMBRE} · ${VEF_TELEFONO} · ${VEF_CORREO}</div></div>`,
+        <div style="background:#0D2B55;padding:10px;text-align:center;color:#A8C5F0;font-size:12px">${nomEmp} · ${empCfg.telefono||''} · ${empCfg.email||fromEmail}</div></div>`,
       attachments:[{filename:`COT-${cot.numero_cotizacion}.pdf`,content:buf}]
     });
     res.json({ok:true,msg:`Correo enviado a ${to}`});
@@ -2432,9 +2466,13 @@ app.post('/api/ordenes-proveedor/:id/email', auth, async (req,res)=>{
     const dest=to||op.proveedor_email;
     if(!dest) return res.status(400).json({error:'Destinatario requerido'});
     const buf=await buildPDFOrden(op,items,req.user?.schema);
-    await mailer.sendMail({
-      from:`"${VEF_NOMBRE}" <${process.env.SMTP_USER}>`,to:dest,cc:cc||undefined,
-      subject:`Orden de Compra ${op.numero_op} — ${VEF_NOMBRE}`,
+    const dynMailerOC = await getMailer(req.user?.schema);
+    const fromEmailOC = await getFromEmail(req.user?.schema);
+    const empCfgOC = (await Q('SELECT nombre FROM empresa_config LIMIT 1',[],req.user?.schema))[0]||{};
+    const nomEmpOC = empCfgOC.nombre||VEF_NOMBRE;
+    await dynMailerOC.sendMail({
+      from:`"${nomEmpOC}" <${fromEmailOC}>`,to:dest,cc:cc||undefined,
+      subject:`Orden de Compra ${op.numero_op} — ${nomEmpOC}`,
       html:`<p>${mensaje||'Estimado proveedor, adjuntamos la orden de compra.'}</p><p>OC: <b>${op.numero_op}</b></p>`,
       attachments:[{filename:`OP-${op.numero_op}.pdf`,content:buf}]
     });
@@ -2747,7 +2785,13 @@ app.delete('/api/inventario/:id', auth, adminOnly, async (req,res)=>{
 // USUARIOS
 // ================================================================
 app.get('/api/usuarios', auth, adminOnly, async (req,res)=>{
-  res.json(await pool.query('SELECT id,username,nombre,email,rol,activo,ultimo_acceso,empresa_id,schema_name FROM public.usuarios WHERE empresa_id=$1 ORDER BY nombre',[req.user.empresa_id]).then(r=>r.rows).catch(()=>[]));
+  try {
+    const empId = req.user.empresa_id;
+    const result = await pool.query(
+      'SELECT id,username,nombre,email,rol,activo,ultimo_acceso FROM public.usuarios WHERE empresa_id=$1 AND COALESCE(activo,true)=true ORDER BY nombre',
+      [empId]);
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({error:e.message}); }
 });
 app.post('/api/usuarios', auth, adminOnly, async (req,res)=>{
   try {
@@ -3549,10 +3593,14 @@ app.post('/api/email/test', auth, async (req,res)=>{
   const { to } = req.body;
   if (!to) return res.status(400).json({ error: 'to requerido' });
   try {
-    await mailer.sendMail({
-      from: `"${VEF_NOMBRE}" <${process.env.SMTP_USER}>`,
+    const dynMailerTest = await getMailer(req.user?.schema);
+    const fromEmailTest = await getFromEmail(req.user?.schema);
+    const empTest = (await Q('SELECT nombre FROM empresa_config LIMIT 1',[],req.user?.schema))[0]||{};
+    const nomTest = empTest.nombre||VEF_NOMBRE;
+    await dynMailerTest.sendMail({
+      from: `"${nomTest}" <${fromEmailTest}>`,
       to,
-      subject: `✅ Prueba de correo — ${VEF_NOMBRE}`,
+      subject: `✅ Prueba de correo — ${nomTest}`,
       html: `<div style="font-family:Arial,sans-serif;max-width:500px">
         <div style="background:#0D2B55;padding:16px;text-align:center">
           <h2 style="color:#fff;margin:0">${VEF_NOMBRE}</h2>
@@ -3602,14 +3650,14 @@ app.post('/api/tareas', auth, async (req,res)=>{
     const {titulo,descripcion,proyecto_id,asignado_a,prioridad,estatus,
            fecha_inicio,fecha_vencimiento,notas} = req.body;
     if(!titulo) return res.status(400).json({error:'Título requerido'});
-    const r = await pool.query(`
+    const rows = await QR(req,`
       INSERT INTO tareas (titulo,descripcion,proyecto_id,asignado_a,creado_por,
         prioridad,estatus,fecha_inicio,fecha_vencimiento,notas)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [titulo,descripcion||null,proyecto_id||null,asignado_a||null,req.user.id,
        prioridad||'normal',estatus||'pendiente',
        fecha_inicio||null,fecha_vencimiento||null,notas||null]);
-    res.status(201).json(r[0]||{});
+    res.status(201).json(rows[0]||{});
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
@@ -3618,7 +3666,7 @@ app.put('/api/tareas/:id', auth, async (req,res)=>{
     const {titulo,descripcion,proyecto_id,asignado_a,prioridad,estatus,
            fecha_inicio,fecha_vencimiento,notas} = req.body;
     const fechaComp = estatus==='completada' ? 'NOW()' : 'NULL';
-    const r = await pool.query(`
+    const rows = await QR(req,`
       UPDATE tareas SET titulo=$1,descripcion=$2,proyecto_id=$3,asignado_a=$4,
         prioridad=$5,estatus=$6,fecha_inicio=$7,fecha_vencimiento=$8,notas=$9,
         fecha_completada=${fechaComp},updated_at=NOW()
@@ -3626,7 +3674,7 @@ app.put('/api/tareas/:id', auth, async (req,res)=>{
       [titulo,descripcion||null,proyecto_id||null,asignado_a||null,
        prioridad||'normal',estatus||'pendiente',
        fecha_inicio||null,fecha_vencimiento||null,notas||null,req.params.id]);
-    res.json(r[0]);
+    res.json(rows[0]||{});
   } catch(e){ res.status(500).json({error:e.message}); }
 });
 
