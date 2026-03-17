@@ -3016,6 +3016,34 @@ async function configuracion(){
             <small style="color:#64748b;font-size:.75rem">La contraseña se guarda encriptada en la BD y no se muestra por seguridad</small>
           </div>
         </div>
+        <!-- Guía de configuración por proveedor -->
+        <div style="background:#f8fafc;border-radius:8px;padding:12px;margin-top:4px;font-size:.8rem">
+          <strong style="color:#0D2B55">📋 Configuración por proveedor:</strong>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:8px">
+            <div style="background:#fff;border-radius:6px;padding:8px;border:1px solid #e2e8f0">
+              <strong>Zoho Mail</strong><br>
+              Host: <code>smtp.zoho.com</code><br>
+              Puerto: <code>465</code> (SSL) o <code>587</code><br>
+              <span style="color:#64748b">Usar contraseña de app</span>
+            </div>
+            <div style="background:#fff;border-radius:6px;padding:8px;border:1px solid #e2e8f0">
+              <strong>Gmail</strong><br>
+              Host: <code>smtp.gmail.com</code><br>
+              Puerto: <code>587</code> (TLS)<br>
+              <span style="color:#64748b">Requiere contraseña de app</span>
+            </div>
+            <div style="background:#fff;border-radius:6px;padding:8px;border:1px solid #e2e8f0">
+              <strong>Outlook / Hotmail</strong><br>
+              Host: <code>smtp.office365.com</code><br>
+              Puerto: <code>587</code> (TLS)<br>
+              <span style="color:#64748b">Usar contraseña normal</span>
+            </div>
+          </div>
+          <div style="margin-top:8px;color:#dc2626;font-size:.75rem">
+            ⚠️ Si usas Zoho desde un servidor cloud (Render, Heroku, AWS), algunos proveedores bloquean conexiones salientes en puerto 465. Prueba con puerto <strong>587</strong>.
+          </div>
+        </div>
+
         <div style="margin-top:16px;border-top:1px solid #eee;padding-top:16px">
           <strong style="font-size:.9rem">Prueba de Correo</strong>
           <div style="display:flex;gap:10px;margin-top:10px;align-items:center;flex-wrap:wrap">

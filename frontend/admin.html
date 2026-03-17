@@ -366,6 +366,7 @@ function renderEmpresas(){
         '<button class="btn btn-sm btn-gray" onclick="toggleActiva('+e.id+','+e.activa+',&quot;'+esc(e.nombre)+'&quot;)">'+
           (e.activa?'🔴 Desactivar':'✅ Activar')+'</button>'+
         '<button class="btn btn-sm" style="background:#dc2626;color:#fff" onclick="mEliminarEmpresa('+e.id+',&quot;'+esc(e.nombre)+'&quot;)">🗑 Eliminar</button>'+
+        '<button class="btn btn-sm" style="background:#7c2d12;color:#fff" onclick="mLimpiarDatos('+e.id+',&quot;'+esc(e.nombre)+'&quot;)">🧹 Limpiar Datos</button>'+
       '</td></tr>';
   }).join('') : '<tr><td colspan="6" style="color:#aaa;text-align:center;padding:24px">Sin empresas</td></tr>';
 }
@@ -637,6 +638,23 @@ async function mEliminarEmpresa(id, nombre){
     await api('/api/admin/empresas/'+id,'PUT',{activa:false});
     toast('Empresa "'+nombre+'" desactivada');
     await cargar();
+  }catch(e){toast(e.message,'err');}
+}
+
+async function mLimpiarDatos(id, nombre){
+  if(!confirm('🚨 ADVERTENCIA CRÍTICA\n\n¿Eliminar TODOS los datos de la empresa "'+nombre+'"?\n\nEsto borrará permanentemente:\n• Clientes, Proveedores, Proyectos\n• Cotizaciones, Facturas, Egresos\n• Inventario, Tareas, PDFs\n\n¡Esta acción NO se puede deshacer!'))return;
+  if(!confirm('Segunda confirmación: ¿Estás SEGURO que deseas borrar TODOS los datos de "'+nombre+'"?'))return;
+  try{
+    const r = await fetch('/api/admin/schema-data/'+id+'?key=vef2025',{method:'DELETE',headers:{Authorization:'Bearer '+localStorage.getItem('adm_token')}});
+    const data = await r.json();
+    if(data.ok){
+      toast('✅ Datos de "'+nombre+'" eliminados correctamente');
+      // Mostrar resumen
+      const resumen = Object.entries(data.deleted||{}).filter(([,v])=>typeof v==='number'&&v>0).map(([t,n])=>`${t}: ${n}`).join(', ');
+      if(resumen) alert('Registros eliminados:\n'+resumen);
+    } else {
+      toast(data.error||'Error al limpiar','err');
+    }
   }catch(e){toast(e.message,'err');}
 }
 

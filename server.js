@@ -151,8 +151,16 @@ const Q = async (sql, p=[], schema=null) => {
   catch(e) { console.error('Query error:', e.message, '\n  SQL:', sql.slice(0,120)); return []; }
 };
 
-// QR(req, sql, params) — usa schema del usuario autenticado en la request
-const QR = async (req, sql, p=[]) => Q(sql, p, req.user?.schema || req.user?.schema_name || global._defaultSchema);
+// QR(req, sql, params) — usa schema del usuario autenticado — NUNCA usa schema de otra empresa
+const QR = async (req, sql, p=[]) => {
+  const schema = req.user?.schema || req.user?.schema_name;
+  if(!schema) {
+    // Sin schema = sin empresa → error de aislamiento
+    console.error('QR: usuario sin schema asignado', req.user?.id, req.user?.username);
+    throw new Error('Usuario sin empresa asignada. Contacta al administrador.');
+  }
+  return Q(sql, p, schema);
+};
 
 // ── MIDDLEWARE ───────────────────────────────────────────────────
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -194,16 +202,28 @@ async function getMailer(schema) {
     const cfg = rows[0];
     if(cfg?.smtp_host && cfg?.smtp_user && cfg?.smtp_pass) {
       const port = parseInt(cfg.smtp_port)||465;
+      // Puerto 465 = SSL implícito, 587 = STARTTLS, otros = STARTTLS
+      const secure = port === 465;
       return nodemailer.createTransport({
         host: cfg.smtp_host,
         port,
-        secure: port === 465,
+        secure,
         auth: { user: cfg.smtp_user, pass: cfg.smtp_pass },
-        tls: { rejectUnauthorized: false }
+        connectionTimeout: 30000,
+        greetingTimeout: 15000,
+        socketTimeout: 30000,
+        tls: { rejectUnauthorized: false },
+        // Para Zoho y algunos proveedores cloud
+        requireTLS: port === 587,
+        opportunisticTLS: port === 587,
       });
     }
-  } catch(e) { console.warn('getMailer fallback:', e.message); }
-  return mailer; // fallback al mailer del .env
+    // Fallback a .env
+    if(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS){
+      return mailer;
+    }
+  } catch(e) { console.warn('getMailer error:', e.message); }
+  return mailer;
 }
 
 async function getFromEmail(schema) {
@@ -632,6 +652,65 @@ app.get('/api/test-dash', async (req,res)=>{
 
 app.get('/api/setup', async (req,res)=>{ await autoSetup(); res.json({ok:true}); });
 
+// ── Limpiar datos cruzados entre empresas ─────────────────────
+// GET /api/fix-schemas?key=vef2025
+app.get('/api/fix-schemas', async (req,res)=>{
+  if(req.query.key!=='vef2025') return res.status(403).json({error:'Clave incorrecta'});
+  const log = [];
+  try {
+    // 1. Obtener todas las empresas
+    const emps = await pool.query('SELECT id,nombre,slug FROM public.empresas ORDER BY id');
+    log.push(`Empresas: ${emps.rows.map(e=>e.nombre+' ('+e.slug+')').join(', ')}`);
+    
+    // 2. Para cada empresa, limpiar empresa_config con datos de VEF
+    for(const emp of emps.rows){
+      const schema = 'emp_'+emp.slug.replace(/[^a-z0-9]/g,'_');
+      const client = await pool.connect();
+      try {
+        await client.query(`SET search_path TO ${schema},public`);
+        // Verificar si existe empresa_config
+        const cfgCheck = await client.query(`SELECT COUNT(*) cnt FROM empresa_config`);
+        if(!cfgCheck.rows[0]?.cnt) { log.push(`${schema}: sin empresa_config`); continue; }
+        
+        // Obtener config actual
+        const cfg = await client.query(`SELECT nombre,email,smtp_user FROM empresa_config LIMIT 1`);
+        const cfgRow = cfg.rows[0];
+        log.push(`${schema}: nombre="${cfgRow?.nombre}" email="${cfgRow?.email}" smtp="${cfgRow?.smtp_user}"`);
+        
+        // Si el nombre es VEF y el schema NO es emp_vef, limpiar SMTP de VEF
+        if(schema !== 'emp_vef' && (cfgRow?.smtp_user||'').includes('vef-automatizacion')){
+          await client.query(`UPDATE empresa_config SET smtp_host=NULL,smtp_port=465,smtp_user=NULL,smtp_pass=NULL WHERE id=(SELECT id FROM empresa_config LIMIT 1)`);
+          log.push(`  → SMTP de VEF borrado de ${schema}`);
+        }
+        // Actualizar nombre si todavía dice "VEF Automatización" y no es emp_vef
+        if(schema !== 'emp_vef' && (cfgRow?.nombre||'').includes('VEF Automatización')){
+          await client.query(`UPDATE empresa_config SET nombre=$1 WHERE id=(SELECT id FROM empresa_config LIMIT 1)`,[emp.nombre]);
+          log.push(`  → Nombre actualizado a "${emp.nombre}" en ${schema}`);
+        }
+      } catch(e){ log.push(`  ERROR ${schema}: ${e.message}`); }
+      finally{ client.release(); }
+    }
+    
+    // 3. Verificar usuarios con schema incorrecto
+    const users = await pool.query(`SELECT id,username,empresa_id,schema_name FROM public.usuarios`);
+    let fixedUsers = 0;
+    for(const u of users.rows){
+      if(!u.empresa_id) continue;
+      const empR = await pool.query('SELECT slug FROM public.empresas WHERE id=$1',[u.empresa_id]);
+      if(!empR.rows[0]) continue;
+      const correctSchema = 'emp_'+empR.rows[0].slug.replace(/[^a-z0-9]/g,'_');
+      if(u.schema_name !== correctSchema){
+        await pool.query('UPDATE public.usuarios SET schema_name=$1 WHERE id=$2',[correctSchema,u.id]);
+        fixedUsers++;
+        log.push(`Usuario ${u.username}: schema ${u.schema_name} → ${correctSchema}`);
+      }
+    }
+    log.push(`Usuarios con schema corregido: ${fixedUsers}`);
+    
+    res.json({ok:true, log});
+  } catch(e){ res.status(500).json({error:e.message, log}); }
+});
+
 /* ─── DIAGNÓSTICO — ver estado real de la BD ──────────────
    GET /api/diagnostico
 ──────────────────────────────────────────────────────── */
@@ -720,7 +799,7 @@ app.get('/api/fix', async (req,res)=>{
       for(const sql of tbls){try{await sc.query(sql);}catch(e){log.push('⚠ '+e.message.slice(0,60));}}
       const ec=(await sc.query(`SELECT id FROM empresa_config LIMIT 1`)).rows;
       if(!ec.length){
-        await sc.query(`INSERT INTO empresa_config(nombre,telefono,email,ciudad,estado,pais,moneda_default,iva_default) VALUES('VEF Automatización','+52 (722) 115-7792','soporte.ventas@vef-automatizacion.com','Toluca','Estado de México','México','USD',16)`);
+        await sc.query(`INSERT INTO empresa_config(nombre,pais,moneda_default,iva_default) VALUES('VEF Automatización','México','USD',16)`);
         log.push('✅ empresa_config creado en emp_vef');
       }
     } finally {sc.release();}
@@ -1214,7 +1293,57 @@ app.put('/api/empresas/:id', auth, async (req,res)=>{
 });
 
 // ── Login con selección de empresa ───────────────────────
-// ── DEBUG LOGIN — ver exactamente por qué falla ────────────
+// ── Admin: Ver datos por schema ─────────────────────────────────
+app.get('/api/admin/schema-data', async (req,res)=>{
+  if(req.query.key!=='vef2025') return res.status(403).json({error:'Clave requerida'});
+  try{
+    const schemas = await pool.query(`
+      SELECT e.id, e.nombre, e.slug, 'emp_'||e.slug as schema_name,
+        (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='emp_'||e.slug) tablas
+      FROM public.empresas e ORDER BY e.id`);
+    const result = {};
+    for(const emp of schemas.rows){
+      const sch = emp.schema_name.replace(/[^a-z0-9_]/g,'');
+      const counts = {};
+      for(const tbl of ['clientes','proveedores','cotizaciones','facturas','inventario','egresos','proyectos','tareas']){
+        try{
+          const r = await pool.query(`SELECT COUNT(*) cnt FROM "${sch}".${tbl}`);
+          counts[tbl] = parseInt(r.rows[0].cnt);
+        }catch{ counts[tbl]=0; }
+      }
+      result[emp.nombre] = {schema:sch, counts};
+    }
+    res.json(result);
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── Admin: Limpiar schema de una empresa (PELIGROSO) ─────────────
+app.delete('/api/admin/schema-data/:empresa_id', async (req,res)=>{
+  if(req.query.key!=='vef2025') return res.status(403).json({error:'Clave requerida'});
+  const tablas=['cotizaciones','items_cotizacion','seguimientos','facturas','pagos',
+    'ordenes_proveedor','items_orden_proveedor','seguimientos_oc','clientes','proveedores',
+    'proyectos','inventario','movimientos_inventario','tareas','egresos','pdfs_guardados',
+    'reportes_servicio','empresa_config'];
+  try{
+    const emp = await pool.query('SELECT slug FROM public.empresas WHERE id=$1',[req.params.empresa_id]);
+    if(!emp.rows[0]) return res.status(404).json({error:'Empresa no encontrada'});
+    const sch = 'emp_'+emp.rows[0].slug.replace(/[^a-z0-9]/g,'_');
+    const deleted = {};
+    for(const t of tablas){
+      try{
+        const r = await pool.query(`DELETE FROM "${sch}".${t}`);
+        deleted[t] = r.rowCount;
+      }catch(e){ deleted[t]='skip:'+e.message.slice(0,30); }
+    }
+    // Reset empresa_config to defaults
+    try{
+      await pool.query(`INSERT INTO "${sch}".empresa_config(nombre) VALUES($1) ON CONFLICT DO NOTHING`,[emp.rows[0].slug]);
+    }catch{}
+    res.json({ok:true, schema:sch, deleted});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+
+// ── DEBUG LOGIN ───────────────────────────────────────────────── — ver exactamente por qué falla ────────────
 // GET /api/debug-login?user=EMAIL&key=vef2025
 app.get('/api/debug-login', async (req,res)=>{
   if(req.query.key!=='vef2025') return res.status(403).json({error:'Clave incorrecta'});
@@ -3576,7 +3705,10 @@ app.put('/api/empresa', auth, adminOnly, async (req,res)=>{
       vals.push(ex[0].id);
       await QR(req,`UPDATE empresa_config SET ${sets.join(',')} WHERE id=$${i}`,vals);
     } else {
-      await QR(req,`INSERT INTO empresa_config (nombre) VALUES ($1)`,['VEF Automatización']);
+      // Get company name from public.empresas for this schema
+      const empNameR = await pool.query('SELECT nombre FROM public.empresas WHERE id=$1',[req.user.empresa_id||null]);
+      const empNameDefault = empNameR.rows[0]?.nombre || 'Mi Empresa';
+      await QR(req,`INSERT INTO empresa_config (nombre,pais,moneda_default,iva_default) VALUES ($1,'México','USD',16)`,[empNameDefault]);
       const [ecRow] = await QR(req,'SELECT id FROM empresa_config LIMIT 1');
       vals.push(ecRow?.id);
       await QR(req,`UPDATE empresa_config SET ${sets.join(',')} WHERE id=$${i}`,vals);
