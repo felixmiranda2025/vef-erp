@@ -1102,6 +1102,34 @@ async function autoSetup() {
         "ALTER TABLE ordenes_proveedor ADD COLUMN IF NOT EXISTS cotizacion_pdf BYTEA",
         "ALTER TABLE ordenes_proveedor ADD COLUMN IF NOT EXISTS cotizacion_nombre TEXT",
         "ALTER TABLE tareas ADD COLUMN IF NOT EXISTS fecha_completada TIMESTAMP",
+        `CREATE TABLE IF NOT EXISTS sat_solicitudes (
+          id SERIAL PRIMARY KEY,
+          id_solicitud VARCHAR(100) UNIQUE,
+          fecha_inicio DATE, fecha_fin DATE,
+          tipo VARCHAR(20) DEFAULT 'CFDI',
+          estatus VARCHAR(30) DEFAULT 'pendiente',
+          paquetes TEXT,
+          created_by INTEGER,
+          created_at TIMESTAMP DEFAULT NOW()
+        )`,
+        `CREATE TABLE IF NOT EXISTS sat_cfdis (
+          id SERIAL PRIMARY KEY,
+          uuid VARCHAR(100) UNIQUE,
+          fecha_cfdi TIMESTAMP,
+          tipo_comprobante VARCHAR(5),
+          subtotal NUMERIC(15,2) DEFAULT 0,
+          total NUMERIC(15,2) DEFAULT 0,
+          moneda VARCHAR(10) DEFAULT 'MXN',
+          emisor_rfc VARCHAR(20),
+          emisor_nombre VARCHAR(300),
+          receptor_rfc VARCHAR(20),
+          receptor_nombre VARCHAR(300),
+          uso_cfdi VARCHAR(10),
+          xml_content TEXT,
+          id_paquete VARCHAR(200),
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        )`,
         "CREATE TABLE IF NOT EXISTS reportes_servicio (id SERIAL PRIMARY KEY,numero_reporte VARCHAR(50),titulo VARCHAR(300) NOT NULL,cliente_id INTEGER,proyecto_id INTEGER,fecha_reporte DATE DEFAULT CURRENT_DATE,fecha_servicio DATE,tecnico VARCHAR(200),estatus VARCHAR(30) DEFAULT 'borrador',introduccion TEXT,objetivo TEXT,alcance TEXT,descripcion_sistema TEXT,arquitectura TEXT,desarrollo_tecnico TEXT,resultados_pruebas TEXT,problemas_detectados TEXT,soluciones_implementadas TEXT,conclusiones TEXT,recomendaciones TEXT,anexos TEXT,created_by INTEGER,created_at TIMESTAMP DEFAULT NOW(),updated_at TIMESTAMP DEFAULT NOW())",
         "ALTER TABLE tareas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
         "ALTER TABLE egresos ADD COLUMN IF NOT EXISTS proveedor_id INTEGER",
@@ -4423,6 +4451,123 @@ app.get('*', (req,res)=>{
 // ================================================================
 // START
 // ================================================================
+// ================================================================
+// SAT DESCARGA MASIVA — Microservicio Python puerto 5050
+// ================================================================
+async function satProxy(endpoint, body) {
+  const http = require('http');
+  const data = JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: 'localhost', port: 5050,
+      path: endpoint, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+      timeout: 90000
+    }, (r) => {
+      let buf = '';
+      r.on('data', c => buf += c);
+      r.on('end', () => {
+        try { resolve(JSON.parse(buf)); }
+        catch(e) { resolve({ ok: false, error: 'Respuesta inválida del servicio SAT' }); }
+      });
+    });
+    req.on('error', e => reject(e));
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout — el servicio SAT no respondió')); });
+    req.write(data); req.end();
+  });
+}
+
+app.post('/api/sat/login', auth, async (req, res) => {
+  try {
+    const result = await satProxy('/login', req.body);
+    res.json(result);
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+app.post('/api/sat/solicitar', auth, async (req, res) => {
+  try {
+    const result = await satProxy('/solicitar', req.body);
+    if (result.ok && result.solicitud?.IdSolicitud) {
+      await QR(req, `INSERT INTO sat_solicitudes
+        (id_solicitud, fecha_inicio, fecha_fin, tipo, estatus, created_by)
+        VALUES ($1,$2,$3,$4,'pendiente',$5)
+        ON CONFLICT (id_solicitud) DO NOTHING`,
+        [result.solicitud.IdSolicitud, req.body.fecha_inicio,
+         req.body.fecha_fin, req.body.tipo||'CFDI', req.user.id]).catch(()=>{});
+    }
+    res.json(result);
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+app.post('/api/sat/verificar', auth, async (req, res) => {
+  try {
+    const result = await satProxy('/verificar', req.body);
+    if (result.ok && result.listo) {
+      await QR(req, `UPDATE sat_solicitudes SET estatus='listo', paquetes=$1 WHERE id_solicitud=$2`,
+        [JSON.stringify(result.paquetes), req.body.id_solicitud]).catch(()=>{});
+    }
+    res.json(result);
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+app.post('/api/sat/descargar', auth, async (req, res) => {
+  try {
+    const result = await satProxy('/descargar', req.body);
+    if (result.ok && result.cfdis) {
+      for (const cfdi of result.cfdis) {
+        if (!cfdi.uuid) continue;
+        await QR(req, `INSERT INTO sat_cfdis
+          (uuid,fecha_cfdi,tipo_comprobante,subtotal,total,moneda,
+           emisor_rfc,emisor_nombre,receptor_rfc,receptor_nombre,uso_cfdi,xml_content,id_paquete)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          ON CONFLICT (uuid) DO UPDATE SET updated_at=NOW()`,
+          [cfdi.uuid, cfdi.fecha||null, cfdi.tipo_comprobante||null,
+           parseFloat(cfdi.subtotal)||0, parseFloat(cfdi.total)||0,
+           cfdi.moneda||'MXN', cfdi.emisor_rfc, cfdi.emisor_nombre,
+           cfdi.receptor_rfc, cfdi.receptor_nombre, cfdi.uso_cfdi,
+           cfdi.xml, req.body.id_paquete]).catch(()=>{});
+      }
+      await QR(req, `UPDATE sat_solicitudes SET estatus='descargado' WHERE id_solicitud=$1`,
+        [req.body.id_solicitud]).catch(()=>{});
+    }
+    const resp = { ...result };
+    if (resp.cfdis) resp.cfdis = resp.cfdis.map(c => ({ ...c, xml: undefined }));
+    res.json(resp);
+  } catch(e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+app.get('/api/sat/cfdis', auth, async (req, res) => {
+  try {
+    const { tipo, rfc, desde, hasta } = req.query;
+    let where = 'WHERE 1=1'; const vals = []; let i = 1;
+    if (tipo)  { where += ` AND tipo_comprobante=$${i++}`; vals.push(tipo); }
+    if (rfc)   { where += ` AND (emisor_rfc=$${i++} OR receptor_rfc=$${i++})`; vals.push(rfc,rfc); }
+    if (desde) { where += ` AND fecha_cfdi>=$${i++}`; vals.push(desde); }
+    if (hasta) { where += ` AND fecha_cfdi<=$${i++}`; vals.push(hasta); }
+    const rows = await QR(req, `SELECT id,uuid,fecha_cfdi,tipo_comprobante,subtotal,total,
+      moneda,emisor_rfc,emisor_nombre,receptor_rfc,receptor_nombre,uso_cfdi,id_paquete,created_at
+      FROM sat_cfdis ${where} ORDER BY fecha_cfdi DESC LIMIT 500`, vals);
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/sat/cfdis/:uuid/xml', auth, async (req, res) => {
+  try {
+    const rows = await QR(req, 'SELECT xml_content,uuid FROM sat_cfdis WHERE uuid=$1', [req.params.uuid]);
+    if (!rows.length||!rows[0].xml_content) return res.status(404).json({ error: 'No encontrado' });
+    res.setHeader('Content-Type','application/xml');
+    res.setHeader('Content-Disposition',`attachment; filename="${rows[0].uuid}.xml"`);
+    res.send(rows[0].xml_content);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/sat/solicitudes', auth, async (req, res) => {
+  try {
+    res.json(await QR(req, 'SELECT * FROM sat_solicitudes ORDER BY created_at DESC LIMIT 50'));
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
 app.listen(PORT, async ()=>{
   console.log(`\n${'═'.repeat(50)}`);
   console.log(`  VEF ERP — Puerto ${PORT}`);
