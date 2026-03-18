@@ -812,6 +812,46 @@ async function dashboard(){
         '</div>'+
       '</div>'+
 
+      // ═══ SEGUNDA FILA: IVA + ISR FISCAL ═══════════════════════
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px">'+
+        // IVA del Mes
+        '<div style="background:#fff;border-radius:12px;padding:16px 20px;border:1px solid #e2e8f0;'+
+          'box-shadow:0 1px 3px rgba(0,0,0,.06);border-left:4px solid #7c3aed">'+
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start">'+
+            '<div>'+
+              '<div style="font-size:.72rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.5px">IVA del Mes (16%)</div>'+
+              '<div style="font-size:1.4rem;font-weight:800;color:#7c3aed;margin-top:4px;line-height:1">'+fmtSym(d.iva_mes||0,'MXN')+'</div>'+
+              '<div style="font-size:.72rem;color:#94a3b8;margin-top:3px">IVA facturado este mes</div>'+
+            '</div>'+
+            '<div style="width:40px;height:40px;background:#f5f3ff;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">🧾</div>'+
+          '</div>'+
+        '</div>'+
+        // ISR Retenido del Mes
+        '<div style="background:#fff;border-radius:12px;padding:16px 20px;border:1px solid #e2e8f0;'+
+          'box-shadow:0 1px 3px rgba(0,0,0,.06);border-left:4px solid #d97706">'+
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start">'+
+            '<div>'+
+              '<div style="font-size:.72rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.5px">ISR Retenido (1.25%)</div>'+
+              '<div style="font-size:1.4rem;font-weight:800;color:#d97706;margin-top:4px;line-height:1">'+fmtSym(d.isr_mes||0,'MXN')+'</div>'+
+              '<div style="font-size:.72rem;color:#94a3b8;margin-top:3px">Personas Morales este mes</div>'+
+            '</div>'+
+            '<div style="width:40px;height:40px;background:#fffbeb;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">🏛</div>'+
+          '</div>'+
+        '</div>'+
+        // Total neto a pagar
+        '<div style="background:#fff;border-radius:12px;padding:16px 20px;border:1px solid #e2e8f0;'+
+          'box-shadow:0 1px 3px rgba(0,0,0,.06);border-left:4px solid #0891b2">'+
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start">'+
+            '<div>'+
+              '<div style="font-size:.72rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.5px">Neto a Recibir</div>'+
+              '<div style="font-size:1.4rem;font-weight:800;color:#0891b2;margin-top:4px;line-height:1">'+fmtSym((d.ing_mes||0)+(d.iva_mes||0)-(d.isr_mes||0),'MXN')+'</div>'+
+              '<div style="font-size:.72rem;color:#94a3b8;margin-top:3px">Subtotal + IVA − ISR</div>'+
+            '</div>'+
+            '<div style="width:40px;height:40px;background:#ecfeff;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">✅</div>'+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+
       // ═══ OPERATIVOS + ACCESOS ═════════════════════════════════
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">'+
         // Contadores operativos
@@ -926,10 +966,13 @@ async function clientes(){
         <input class="search-input" placeholder="Buscar nombre, RFC, ciudad..." oninput="filterTable(this,'tblCli')">
       </div>
       <div class="table-wrap"><table id="tblCli">
-        <thead><tr><th>Nombre</th><th>RFC</th><th>Contacto</th><th>Teléfono</th><th>Email</th><th>Ciudad</th><th>Documentos</th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Tipo</th><th>RFC</th><th>Contacto</th><th>Teléfono</th><th>Email</th><th>Ciudad</th><th>Documentos</th></tr></thead>
         <tbody>${(data||[]).map(c=>`<tr class="row-sel" onclick="selCli(${c.id},this)"
             data-id="${c.id}" data-row='${JSON.stringify(c).replace(/'/g,"&#39;")}'>
           <td><strong>${esc(c.nombre)}</strong></td>
+          <td style="white-space:nowrap">${c.tipo_persona==='moral'
+            ?'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:700">🏢 Moral</span>'
+            :'<span style="background:#f0fdf4;color:#15803d;padding:2px 8px;border-radius:10px;font-size:.72rem">👤 Física</span>'}</td>
           <td style="font-family:monospace;font-size:.82rem">${esc(c.rfc||'—')}</td>
           <td>${esc(c.contacto||'—')}</td>
           <td>${esc(c.telefono||'—')}</td>
@@ -986,6 +1029,13 @@ function clienteForm(c=null){
         <label class="field-required">Nombre</label>
         <input id="c_nom" value="${esc(c?.nombre||'')}" placeholder="Nombre o razón social del cliente">
       </div>
+      <div class="field-group">
+        <label class="field-required">Tipo de Persona</label>
+        <select id="c_tipo" onchange="cliTipoChange(this)">
+          <option value="fisica"  ${(c?.tipo_persona||'fisica')==='fisica' ?'selected':''}>👤 Persona Física</option>
+          <option value="moral"   ${c?.tipo_persona==='moral'              ?'selected':''}>🏢 Persona Moral</option>
+        </select>
+      </div>
       <div class="field-group"><label>RFC</label><input id="c_rfc" value="${esc(c?.rfc||'')}" placeholder="RFC del cliente"></div>
       <div class="field-group"><label>Régimen Fiscal</label><input id="c_reg" value="${esc(c?.regimen_fiscal||'')}"></div>
       <div class="field-group"><label>Contacto</label><input id="c_cont" value="${esc(c?.contacto||'')}"></div>
@@ -994,9 +1044,19 @@ function clienteForm(c=null){
       <div class="field-group" style="grid-column:1/-1"><label>Dirección</label><input id="c_dir" value="${esc(c?.direccion||'')}"></div>
       <div class="field-group"><label>CP</label><input id="c_cp" value="${esc(c?.cp||'')}"></div>
       <div class="field-group"><label>Ciudad</label><input id="c_ciudad" value="${esc(c?.ciudad||'')}"></div>
+      <div id="c_moral_info" style="grid-column:1/-1;${(c?.tipo_persona||'fisica')==='moral'?'':'display:none'}">
+        <div style="background:#fef3c7;border-left:3px solid #d97706;padding:10px 14px;border-radius:4px;font-size:.83rem">
+          🏢 <strong>Persona Moral</strong> — En facturas se aplicará retención de ISR del <strong>1.25%</strong> automáticamente.
+        </div>
+      </div>
     </div>`,
   `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
    <button class="btn btn-primary" onclick="clienteSave(${c?.id||'null'})">💾 Guardar</button>`);
+}
+
+function cliTipoChange(sel){
+  var info = document.getElementById('c_moral_info');
+  if(info) info.style.display = sel.value==='moral' ? 'block' : 'none';
 }
 
 async function clienteSave(id){
@@ -1004,7 +1064,8 @@ async function clienteSave(id){
     regimen_fiscal:ge('c_reg').value.trim(),contacto:ge('c_cont').value.trim(),
     telefono:ge('c_tel').value.trim(),email:ge('c_email').value.trim(),
     direccion:ge('c_dir').value.trim(),cp:ge('c_cp').value.trim(),
-    ciudad:ge('c_ciudad').value.trim()};
+    ciudad:ge('c_ciudad').value.trim(),
+    tipo_persona:ge('c_tipo')?.value||'fisica'};
   if(!b.nombre){toast('Nombre requerido','err');return;}
   try{
     id&&id!=='null'?await api('/api/clientes/'+id,'PUT',b):await api('/api/clientes','POST',b);
@@ -1080,10 +1141,11 @@ async function proveedores(){
         <input class="search-input" placeholder="Buscar nombre, RFC, contacto..." oninput="filterTable(this,'tblProv')">
       </div>
       <div class="table-wrap"><table id="tblProv">
-        <thead><tr><th>Nombre</th><th>RFC</th><th>Contacto</th><th>Teléfono</th><th>Email</th><th>Dirección</th><th>Cond. Pago</th><th>Documentos</th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Tipo</th><th>RFC</th><th>Contacto</th><th>Teléfono</th><th>Email</th><th>Dirección</th><th>Cond. Pago</th><th>Docs</th></tr></thead>
         <tbody>${(data||[]).map(p=>`<tr class="row-sel" onclick="selProv(${p.id},this)"
             data-id="${p.id}" data-row='${JSON.stringify(p).replace(/'/g,"&#39;")}'>
           <td><strong>${esc(p.nombre)}</strong></td>
+          <td style="font-size:.75rem;white-space:nowrap">${p.tipo_persona==='moral'?'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 7px;border-radius:10px;font-weight:700">🏢 Moral</span>':'<span style="background:#f0fdf4;color:#15803d;padding:2px 7px;border-radius:10px">👤 Física</span>'}</td>
           <td style="font-family:monospace;font-size:.82rem">${esc(p.rfc||'—')}</td>
           <td>${esc(p.contacto||'—')}</td>
           <td>${esc(p.telefono||'—')}</td>
@@ -1099,7 +1161,7 @@ async function proveedores(){
               ?`<span style="color:#059669;font-weight:600;cursor:pointer" onclick="event.stopPropagation();verDocProv(${p.id},'estado-cuenta')" title="Ver Estado de Cuenta">🏦 ✅</span>`
               :`<span style="color:#94a3b8" title="Sin estado de cuenta">🏦 —</span>`}
           </td>
-        </tr>`).join('')||'<tr><td colspan="8" style="color:#aaa;text-align:center;padding:30px">Sin proveedores registrados</td></tr>'}
+        </tr>`).join('')||'<tr><td colspan="9" style="color:#aaa;text-align:center;padding:30px">Sin proveedores registrados</td></tr>'}
         </tbody></table></div>
     </div>
   </div>`);
@@ -1182,6 +1244,13 @@ function provForm(p=null){
         <input id="p_nom" value="${esc(p?.nombre||'')}" placeholder="Nombre o razón social">
       </div>
       <div class="field-group">
+        <label class="field-required">Tipo de Persona</label>
+        <select id="p_tipo">
+          <option value="fisica" ${(p?.tipo_persona||'fisica')==='fisica'?'selected':''}>👤 Persona Física</option>
+          <option value="moral"  ${p?.tipo_persona==='moral'             ?'selected':''}>🏢 Persona Moral</option>
+        </select>
+      </div>
+      <div class="field-group">
         <label>RFC</label>
         <input id="p_rfc" value="${esc(p?.rfc||'')}" placeholder="Ej: PROV210101XXX">
       </div>
@@ -1213,6 +1282,7 @@ function provForm(p=null){
 async function provSave(id){
   const b={
     nombre:ge('p_nom').value.trim(),
+    tipo_persona:ge('p_tipo')?.value||'fisica',
     rfc:ge('p_rfc').value.trim(),
     contacto:ge('p_cont').value.trim(),
     telefono:ge('p_tel').value.trim(),
@@ -1731,7 +1801,7 @@ function facForm(){
       </div>
       <div class="field-group" style="grid-column:1/-1">
         <label>Cliente</label>
-        <select id="fc_cli"><option value="">-- Seleccionar --</option>${cliOpts}</select>
+        <select id="fc_cli" onchange="facClienteChange(this)"><option value="">-- Seleccionar --</option>${cliOpts}</select>
       </div>
       <div class="field-group"><label>Moneda</label>
         <div style="display:flex;gap:20px;padding:6px 0">
@@ -1743,10 +1813,21 @@ function facForm(){
       <div class="field-group"><label>IVA (16%)</label>
         <div style="display:flex;gap:8px;align-items:center">
           <input id="fc_iva" type="text" inputmode="decimal" value="0" oninput="facCalcTotal()" style="flex:1">
-          <button class="btn btn-secondary btn-sm" onclick="facAplicarIVA()" type="button">Auto 16%</button>
+          <button class="btn btn-secondary btn-sm" onclick="facAplicarIVA()" type="button">16%</button>
         </div></div>
-      <div class="field-group"><label>Total</label>
-        <input id="fc_tot" type="text" inputmode="decimal" value="0" style="font-weight:700;font-size:1.1rem;color:var(--azul)">
+      <div class="field-group"><label style="color:#92400e">Ret. ISR <small>(1.25% Persona Moral)</small></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="fc_isr" type="text" inputmode="decimal" value="0" oninput="facCalcTotal()" style="flex:1;border-color:#d97706">
+          <button class="btn btn-sm" onclick="facAplicarISR()" type="button" style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:0 10px;cursor:pointer">1.25%</button>
+        </div></div>
+      <div class="field-group"><label style="color:#6d28d9">Ret. IVA <small>(10.67% opcional)</small></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="fc_ret_iva" type="text" inputmode="decimal" value="0" oninput="facCalcTotal()" style="flex:1;border-color:#7c3aed">
+          <button class="btn btn-sm" onclick="facAplicarRetIVA()" type="button" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:0 10px;cursor:pointer">10.67%</button>
+        </div></div>
+      <div class="field-group" style="grid-column:1/-1"><label style="font-weight:700;color:#0D2B55">Total a Pagar</label>
+        <input id="fc_tot" type="text" inputmode="decimal" value="0" style="font-weight:800;font-size:1.15rem;color:var(--azul);border-color:#0D2B55">
+        <small style="color:#64748b;font-size:.75rem">= Subtotal + IVA - Ret. ISR - Ret. IVA</small>
       </div>
       <div class="field-group" style="grid-column:1/-1"><label>Notas</label><textarea id="fc_notas" rows="2"></textarea></div>
     </div>`,
@@ -1847,14 +1928,36 @@ function facAutoFill(){
 }
 function facAplicarIVA(){
   const sub=toNum(ge('fc_sub')?.value||0);
-  const iva=sub*0.16;
-  if(ge('fc_iva')) ge('fc_iva').value=iva.toFixed(2);
-  if(ge('fc_tot')) ge('fc_tot').value=(sub+iva).toFixed(2);
+  if(ge('fc_iva')) ge('fc_iva').value=(sub*0.16).toFixed(2);
+  facCalcTotal();
+}
+function facAplicarISR(){
+  const sub=toNum(ge('fc_sub')?.value||0);
+  if(ge('fc_isr')) ge('fc_isr').value=(sub*0.0125).toFixed(2);
+  facCalcTotal();
+}
+function facAplicarRetIVA(){
+  const sub=toNum(ge('fc_sub')?.value||0);
+  if(ge('fc_ret_iva')) ge('fc_ret_iva').value=(sub*0.1067).toFixed(2);
+  facCalcTotal();
 }
 function facCalcTotal(){
   const sub=toNum(ge('fc_sub')?.value||0);
   const iva=toNum(ge('fc_iva')?.value||0);
-  if(ge('fc_tot')) ge('fc_tot').value=(sub+iva).toFixed(2);
+  const isr=toNum(ge('fc_isr')?.value||0);
+  const retIva=toNum(ge('fc_ret_iva')?.value||0);
+  const total=sub+iva-isr-retIva;
+  if(ge('fc_tot')) ge('fc_tot').value=total.toFixed(2);
+}
+function facClienteChange(sel){
+  var cli=(window._facClts||[]).find(function(c){return c.id==sel.value;});
+  if(cli&&cli.tipo_persona==='moral'){
+    setTimeout(facAplicarISR,100);
+    toast('🏢 Persona Moral — ISR 1.25% aplicado automáticamente');
+  } else {
+    if(ge('fc_isr')) ge('fc_isr').value='0';
+    facCalcTotal();
+  }
 }
 
 async function facSave(){
@@ -1862,7 +1965,10 @@ async function facSave(){
   if(!total){toast('El total no puede ser cero','err');return;}
   const mon=document.querySelector('[name=fc_mon]:checked')?.value||'USD';
   const b={cotizacion_id:parseInt(ge('fc_cot').value)||null,cliente_id:parseInt(ge('fc_cli').value)||null,
-    moneda:mon,subtotal:toNum(ge('fc_sub').value),iva:toNum(ge('fc_iva').value),total,
+    moneda:mon,subtotal:toNum(ge('fc_sub').value),iva:toNum(ge('fc_iva').value),
+    retencion_isr:toNum(ge('fc_isr')?.value||0),
+    retencion_iva:toNum(ge('fc_ret_iva')?.value||0),
+    total,
     fecha_vencimiento:ge('fc_venc').value||null,notas:ge('fc_notas').value.trim()};
   try{await api('/api/facturas','POST',b);toast('Factura creada ✓');closeModal();ordenes();}catch(e){toast(e.message,'err');}
 }

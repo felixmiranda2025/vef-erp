@@ -1067,12 +1067,16 @@ async function autoSetup() {
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS cp TEXT",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS ciudad TEXT",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS activo BOOLEAN DEFAULT true",
+        "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS tipo_persona VARCHAR(10) DEFAULT 'moral'",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS constancia_pdf BYTEA",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS constancia_nombre TEXT",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS constancia_fecha TIMESTAMP",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS estado_cuenta_pdf BYTEA",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS estado_cuenta_nombre TEXT",
         "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS estado_cuenta_fecha TIMESTAMP",
+        "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS tipo_persona VARCHAR(10) DEFAULT 'fisica'",
+        "ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS tipo_persona VARCHAR(10) DEFAULT 'fisica'",
+        "ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS tipo_persona VARCHAR(10) DEFAULT 'moral'",
         "ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS constancia_pdf BYTEA",
         "ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS constancia_nombre TEXT",
         "ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS constancia_fecha TIMESTAMP",
@@ -1083,6 +1087,9 @@ async function autoSetup() {
         "ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS created_by INTEGER",
         "ALTER TABLE facturas ADD COLUMN IF NOT EXISTS cliente_id INTEGER",
         "ALTER TABLE facturas ADD COLUMN IF NOT EXISTS subtotal NUMERIC(15,2) DEFAULT 0",
+        "ALTER TABLE facturas ADD COLUMN IF NOT EXISTS iva NUMERIC(15,2) DEFAULT 0",
+        "ALTER TABLE facturas ADD COLUMN IF NOT EXISTS retencion_isr NUMERIC(15,2) DEFAULT 0",
+        "ALTER TABLE facturas ADD COLUMN IF NOT EXISTS retencion_iva NUMERIC(15,2) DEFAULT 0",
         "ALTER TABLE facturas ADD COLUMN IF NOT EXISTS iva NUMERIC(15,2) DEFAULT 0",
         "ALTER TABLE facturas ADD COLUMN IF NOT EXISTS monto NUMERIC(15,2) DEFAULT 0",
         "ALTER TABLE facturas ADD COLUMN IF NOT EXISTS fecha_vencimiento DATE",
@@ -1537,6 +1544,10 @@ app.get('/api/dashboard/metrics', auth, async (req,res)=>{
     const facts  = await n("SELECT COUNT(*) val FROM facturas WHERE estatus IN ('pendiente','parcial')");
     const tar    = await n("SELECT COUNT(*) val FROM tareas WHERE estatus!='completada'");
     const ing    = await s('SELECT COALESCE(SUM(total),0) val FROM facturas WHERE EXTRACT(MONTH FROM fecha_emision)=$1 AND EXTRACT(YEAR FROM fecha_emision)=$2',[M,Y]);
+    const ivaCol = await n("SELECT 1 FROM information_schema.columns WHERE table_schema='"+schema+"' AND table_name='facturas' AND column_name='iva' LIMIT 1");
+    const isrCol = await n("SELECT 1 FROM information_schema.columns WHERE table_schema='"+schema+"' AND table_name='facturas' AND column_name='retencion_isr' LIMIT 1");
+    const ivaFac = ivaCol ? await s('SELECT COALESCE(SUM(iva),0) val FROM facturas WHERE EXTRACT(MONTH FROM fecha_emision)=$1 AND EXTRACT(YEAR FROM fecha_emision)=$2',[M,Y]) : 0;
+    const isrFac = isrCol ? await s('SELECT COALESCE(SUM(retencion_isr),0) val FROM facturas WHERE EXTRACT(MONTH FROM fecha_emision)=$1 AND EXTRACT(YEAR FROM fecha_emision)=$2',[M,Y]) : 0;
     const cob    = await s('SELECT COALESCE(SUM(monto),0) val FROM pagos WHERE EXTRACT(MONTH FROM fecha)=$1 AND EXTRACT(YEAR FROM fecha)=$2',[M,Y]);
     // Egresos = egresos directos + OC proveedores aprobadas del mes
     const egrDir = await s('SELECT COALESCE(SUM(total),0) val FROM egresos WHERE EXTRACT(MONTH FROM fecha)=$1 AND EXTRACT(YEAR FROM fecha)=$2',[M,Y]);
@@ -1559,7 +1570,8 @@ app.get('/api/dashboard/metrics', auth, async (req,res)=>{
       items_inventario:prods,facturas_pendientes:facts,tareas_pendientes:tar,
       ing_mes:ing,egr_mes:egr,egr_directo:egrDir,egr_oc:egrOC,
       oc_pendientes:ocPend,oc_mes:ocMes,
-      cob_mes:cob,empresa:emp,
+      cob_mes:cob,iva_mes:ivaFac,isr_mes:isrFac,
+      empresa:emp,
       cot_recientes:cots5,fac_vencer:facs5,inv_bajo:inv6,mes_actual});
   } catch(e){
     console.error('dashboard err:',e.message);
@@ -1833,10 +1845,14 @@ app.get('/api/clientes/:id', auth, async (req,res)=>{
 });
 app.post('/api/clientes', auth, async (req,res)=>{
   try {
-    const {nombre,contacto,direccion,telefono,email,rfc}=req.body;
+    const {nombre,contacto,direccion,telefono,email,rfc,regimen_fiscal,cp,ciudad,tipo_persona}=req.body;
     const cols=['nombre','contacto','direccion','telefono','email'];
     const vals=[nombre,contacto,direccion,telefono,email];
-    if(has('clientes','rfc')){cols.push('rfc');vals.push(rfc?.toUpperCase());}
+    if(has('clientes','rfc')){cols.push('rfc');vals.push(rfc?.toUpperCase()||null);}
+    if(has('clientes','regimen_fiscal')){cols.push('regimen_fiscal');vals.push(regimen_fiscal||null);}
+    if(has('clientes','cp')){cols.push('cp');vals.push(cp||null);}
+    if(has('clientes','ciudad')){cols.push('ciudad');vals.push(ciudad||null);}
+    if(has('clientes','tipo_persona')){cols.push('tipo_persona');vals.push(tipo_persona||'moral');}
     const ph=vals.map((_,i)=>`$${i+1}`).join(',');
     const rows=await QR(req,`INSERT INTO clientes (${cols.join(',')}) VALUES (${ph}) RETURNING *`,vals);
     res.status(201).json(rows[0]);
@@ -1844,12 +1860,16 @@ app.post('/api/clientes', auth, async (req,res)=>{
 });
 app.put('/api/clientes/:id', auth, async (req,res)=>{
   try {
-    const {nombre,contacto,direccion,telefono,email,rfc}=req.body;
+    const {nombre,contacto,direccion,telefono,email,rfc,regimen_fiscal,cp,ciudad,tipo_persona}=req.body;
     const sets=[]; const vals=[];let i=1;
     const add=(c,v)=>{sets.push(`${c}=$${i++}`);vals.push(v);};
     add('nombre',nombre);add('contacto',contacto);add('direccion',direccion);
     add('telefono',telefono);add('email',email);
-    if(has('clientes','rfc')) add('rfc',rfc?.toUpperCase());
+    if(has('clientes','rfc')) add('rfc',rfc?.toUpperCase()||null);
+    if(has('clientes','regimen_fiscal')) add('regimen_fiscal',regimen_fiscal||null);
+    if(has('clientes','cp')) add('cp',cp||null);
+    if(has('clientes','ciudad')) add('ciudad',ciudad||null);
+    if(has('clientes','tipo_persona')) add('tipo_persona',tipo_persona||'moral');
     vals.push(req.params.id);
     const rows=await QR(req,`UPDATE clientes SET ${sets.join(',')} WHERE id=$${i} RETURNING *`,vals);
     res.json(rows[0]);
@@ -2048,11 +2068,12 @@ app.get('/api/proveedores', auth, async (req,res)=>{
 });
 app.post('/api/proveedores', auth, async (req,res)=>{
   try {
-    const {nombre,contacto,direccion,telefono,email,rfc,condiciones_pago}=req.body;
+    const {nombre,contacto,direccion,telefono,email,rfc,condiciones_pago,tipo_persona}=req.body;
     const cols=['nombre','contacto','direccion','telefono','email'];
     const vals=[nombre,contacto,direccion,telefono,email];
-    if(has('proveedores','rfc')){cols.push('rfc');vals.push(rfc?.toUpperCase());}
-    if(has('proveedores','condiciones_pago')){cols.push('condiciones_pago');vals.push(condiciones_pago);}
+    if(has('proveedores','rfc')){cols.push('rfc');vals.push(rfc?.toUpperCase()||null);}
+    if(has('proveedores','condiciones_pago')){cols.push('condiciones_pago');vals.push(condiciones_pago||null);}
+    if(has('proveedores','tipo_persona')){cols.push('tipo_persona');vals.push(tipo_persona||'moral');}
     const ph=vals.map((_,i)=>`$${i+1}`).join(',');
     const rows=await QR(req,`INSERT INTO proveedores (${cols.join(',')}) VALUES (${ph}) RETURNING *`,vals);
     res.status(201).json(rows[0]);
@@ -2060,13 +2081,14 @@ app.post('/api/proveedores', auth, async (req,res)=>{
 });
 app.put('/api/proveedores/:id', auth, async (req,res)=>{
   try {
-    const {nombre,contacto,direccion,telefono,email,rfc,condiciones_pago}=req.body;
+    const {nombre,contacto,direccion,telefono,email,rfc,condiciones_pago,tipo_persona}=req.body;
     const sets=[];const vals=[];let i=1;
     const add=(c,v)=>{sets.push(`${c}=$${i++}`);vals.push(v);};
     add('nombre',nombre);add('contacto',contacto);add('direccion',direccion);
     add('telefono',telefono);add('email',email);
-    if(has('proveedores','rfc')) add('rfc',rfc?.toUpperCase());
-    if(has('proveedores','condiciones_pago')) add('condiciones_pago',condiciones_pago);
+    if(has('proveedores','rfc')) add('rfc',rfc?.toUpperCase()||null);
+    if(has('proveedores','condiciones_pago')) add('condiciones_pago',condiciones_pago||null);
+    if(has('proveedores','tipo_persona')) add('tipo_persona',tipo_persona||'moral');
     vals.push(req.params.id);
     const rows=await QR(req,`UPDATE proveedores SET ${sets.join(',')} WHERE id=$${i} RETURNING *`,vals);
     res.json(rows[0]);
@@ -2675,6 +2697,8 @@ app.get('/api/facturas', auth, async (req,res)=>{
   const estCol=has('facturas','estatus_pago')?'f.estatus_pago':'f.estatus';
   const monedaCol=has('facturas','moneda')?"f.moneda":"'USD'";
   const totalCol=has('facturas','total')?'f.total':has('facturas','monto')?'f.monto':'0';
+  const isrCol2=has('facturas','retencion_isr')?'f.retencion_isr':'0 AS retencion_isr';
+  const ivaCol2=has('facturas','iva')?'f.iva':'0 AS iva';
   let sql=`
     SELECT f.id, f.numero_factura, ${totalCol} total, ${monedaCol} moneda,
            ${estCol} estatus, f.fecha_emision,
@@ -2701,15 +2725,18 @@ app.post('/api/facturas', auth, async (req,res)=>{
     const yr=new Date().getFullYear();
     const cnt=((await QR(req,"SELECT COUNT(*) FROM facturas WHERE fecha_emision::text LIKE $1",[`${yr}%`]))[0]||{}).count||0;
     const num=`FAC-${yr}-${String(parseInt(cnt)+1).padStart(3,'0')}`;
+    const {retencion_isr=0, retencion_iva=0} = req.body;
     const cols=['numero_factura','cotizacion_id'];
     const vals=[num,cotizacion_id||null];
     const maybePush=(col,val)=>{ if(has('facturas',col)){cols.push(col);vals.push(val);} };
     maybePush('cliente_id',cliente_id||null);
     maybePush('moneda',moneda||'USD');
-    maybePush('subtotal',subtotal||0);
-    maybePush('iva',iva||0);
-    maybePush('total',total||0);
-    maybePush('monto',total||0);
+    maybePush('subtotal',parseFloat(subtotal)||0);
+    maybePush('iva',parseFloat(iva)||0);
+    maybePush('retencion_isr',parseFloat(retencion_isr)||0);
+    maybePush('retencion_iva',parseFloat(retencion_iva)||0);
+    maybePush('total',parseFloat(total)||0);
+    maybePush('monto',parseFloat(total)||0);
     maybePush('fecha_vencimiento',fecha_vencimiento||null);
     maybePush('notas',notas);
     maybePush('estatus','pendiente');
